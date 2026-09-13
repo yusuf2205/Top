@@ -44,6 +44,11 @@ services:
     env_file: ${ENV_FILE_PATH:-.env}
     environment:
       PORT: ${WEB_PORT:-3000}
+      # Docker auto-injects HOSTNAME=<container id> into every container: Next.js's
+      # standalone server.js does `process.env.HOSTNAME || '0.0.0.0'`, so without this
+      # override it binds to that container-id "hostname" instead of all interfaces —
+      # `wget http://localhost:3000` (our own healthcheck) then gets connection refused.
+      HOSTNAME: "0.0.0.0"
     depends_on:
       api:
         condition: service_healthy
