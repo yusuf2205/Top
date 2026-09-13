@@ -9,6 +9,8 @@ api:
   insecure: false # dashboard is only reachable through the authenticated router below, not a raw port
 
 entryPoints:
+  traefik:
+    address: ":8080" # internal only — not published to the host; used by the container's own healthcheck (traefik healthcheck --ping)
   web:
     address: ":80"
     http:
@@ -18,6 +20,9 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+
+ping:
+  entryPoint: traefik
 
 providers:
   docker:
