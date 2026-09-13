@@ -28,6 +28,11 @@ PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -h postgres -U "${POSTGRES_USER}" -d "
 
 echo "[backup] Mirroring MinIO bucket '${S3_BUCKET}'..."
 mkdir -p "${BACKUP_DIR}/minio"
+# The bucket won't exist yet on a fresh install (nothing has uploaded a document via
+# the file-upload feature, which lands in M2+) — that's a legitimate empty state, not
+# a failure, so ensure it exists rather than letting `sync` hard-fail on "directory
+# not found".
+rclone mkdir ":s3:${S3_BUCKET}" "${RCLONE_S3_FLAGS[@]}"
 rclone sync ":s3:${S3_BUCKET}" "${BACKUP_DIR}/minio/" "${RCLONE_S3_FLAGS[@]}" --create-empty-src-dirs
 
 echo "[backup] Pushing to configured targets: ${BACKUP_TARGETS:-local}"
