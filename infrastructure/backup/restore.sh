@@ -21,8 +21,8 @@ PGPASSWORD="${POSTGRES_PASSWORD}" pg_restore -h postgres -U "${POSTGRES_USER}" -
   --clean --if-exists --no-owner "${BACKUP_DIR}/postgres.dump"
 
 echo "[restore] Restoring MinIO documents into bucket '${TARGET_BUCKET}'..."
-mc alias set restoretarget "http://minio:9000" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}" >/dev/null
-mc mb --ignore-existing "restoretarget/${TARGET_BUCKET}"
-mc mirror --overwrite "${BACKUP_DIR}/minio/" "restoretarget/${TARGET_BUCKET}"
+TARGET_REMOTE=":s3,provider=Minio,access_key_id=${S3_ACCESS_KEY},secret_access_key=${S3_SECRET_KEY},endpoint=${S3_ENDPOINT},force_path_style=true:${TARGET_BUCKET}"
+rclone mkdir "${TARGET_REMOTE}" 2>/dev/null || true
+rclone sync "${BACKUP_DIR}/minio/" "${TARGET_REMOTE}" --create-empty-src-dirs
 
 echo "[restore] Done."

@@ -8,14 +8,19 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_DIR="/backups/${TIMESTAMP}"
 mkdir -p "${BACKUP_DIR}"
 
+# On-the-fly rclone remote pointing at MinIO — no config file, no separate `mc`
+# binary (MinIO's own client download turned out to be dead, same story as
+# minio/minio on Docker Hub — see backup.Dockerfile). One rclone connection-string
+# convention is reused by restore.sh/restore-test.sh too.
+MINIO_REMOTE=":s3,provider=Minio,access_key_id=${S3_ACCESS_KEY},secret_access_key=${S3_SECRET_KEY},endpoint=${S3_ENDPOINT},force_path_style=true:${S3_BUCKET}"
+
 echo "[backup] Dumping PostgreSQL database '${POSTGRES_DB}'..."
 PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -h postgres -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
   -F custom -f "${BACKUP_DIR}/postgres.dump"
 
 echo "[backup] Mirroring MinIO bucket '${S3_BUCKET}'..."
-mc alias set backupsrc "http://minio:9000" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}" >/dev/null
 mkdir -p "${BACKUP_DIR}/minio"
-mc mirror --overwrite "backupsrc/${S3_BUCKET}" "${BACKUP_DIR}/minio/"
+rclone sync "${MINIO_REMOTE}" "${BACKUP_DIR}/minio/" --create-empty-src-dirs
 
 echo "[backup] Pushing to configured targets: ${BACKUP_TARGETS:-local}"
 IFS=',' read -ra TARGETS <<< "${BACKUP_TARGETS:-local}"
