@@ -21,8 +21,14 @@ PGPASSWORD="${POSTGRES_PASSWORD}" pg_restore -h postgres -U "${POSTGRES_USER}" -
   --clean --if-exists --no-owner "${BACKUP_DIR}/postgres.dump"
 
 echo "[restore] Restoring MinIO documents into bucket '${TARGET_BUCKET}'..."
-TARGET_REMOTE=":s3,provider=Minio,access_key_id=${S3_ACCESS_KEY},secret_access_key=${S3_SECRET_KEY},endpoint=${S3_ENDPOINT},force_path_style=true:${TARGET_BUCKET}"
-rclone mkdir "${TARGET_REMOTE}" 2>/dev/null || true
-rclone sync "${BACKUP_DIR}/minio/" "${TARGET_REMOTE}" --create-empty-src-dirs
+RCLONE_S3_FLAGS=(
+  --s3-provider=Minio
+  --s3-access-key-id="${S3_ACCESS_KEY}"
+  --s3-secret-access-key="${S3_SECRET_KEY}"
+  --s3-endpoint="${S3_ENDPOINT}"
+  --s3-force-path-style
+)
+rclone mkdir ":s3:${TARGET_BUCKET}" "${RCLONE_S3_FLAGS[@]}" 2>/dev/null || true
+rclone sync "${BACKUP_DIR}/minio/" ":s3:${TARGET_BUCKET}" "${RCLONE_S3_FLAGS[@]}" --create-empty-src-dirs
 
 echo "[restore] Done."

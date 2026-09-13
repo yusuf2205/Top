@@ -8,11 +8,19 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_DIR="/backups/${TIMESTAMP}"
 mkdir -p "${BACKUP_DIR}"
 
-# On-the-fly rclone remote pointing at MinIO — no config file, no separate `mc`
-# binary (MinIO's own client download turned out to be dead, same story as
-# minio/minio on Docker Hub — see backup.Dockerfile). One rclone connection-string
-# convention is reused by restore.sh/restore-test.sh too.
-MINIO_REMOTE=":s3,provider=Minio,access_key_id=${S3_ACCESS_KEY},secret_access_key=${S3_SECRET_KEY},endpoint=${S3_ENDPOINT},force_path_style=true:${S3_BUCKET}"
+# rclone talks to MinIO with no config file: `--s3-*` flags configure an anonymous
+# "s3"-type backend for this one invocation, referenced as `:s3:bucket`. (No separate
+# `mc` binary — MinIO's own client download turned out to be dead, same story as
+# minio/minio on Docker Hub — see backup.Dockerfile. Also no inline connection-string
+# remote (":s3,endpoint=...:bucket") — rclone's parser mishandles the "://" inside an
+# endpoint value there; confirmed on the NAS.) restore.sh reuses this flag set.
+RCLONE_S3_FLAGS=(
+  --s3-provider=Minio
+  --s3-access-key-id="${S3_ACCESS_KEY}"
+  --s3-secret-access-key="${S3_SECRET_KEY}"
+  --s3-endpoint="${S3_ENDPOINT}"
+  --s3-force-path-style
+)
 
 echo "[backup] Dumping PostgreSQL database '${POSTGRES_DB}'..."
 PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -h postgres -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
@@ -20,7 +28,7 @@ PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -h postgres -U "${POSTGRES_USER}" -d "
 
 echo "[backup] Mirroring MinIO bucket '${S3_BUCKET}'..."
 mkdir -p "${BACKUP_DIR}/minio"
-rclone sync "${MINIO_REMOTE}" "${BACKUP_DIR}/minio/" --create-empty-src-dirs
+rclone sync ":s3:${S3_BUCKET}" "${BACKUP_DIR}/minio/" "${RCLONE_S3_FLAGS[@]}" --create-empty-src-dirs
 
 echo "[backup] Pushing to configured targets: ${BACKUP_TARGETS:-local}"
 IFS=',' read -ra TARGETS <<< "${BACKUP_TARGETS:-local}"
