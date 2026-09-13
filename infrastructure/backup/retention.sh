@@ -7,7 +7,10 @@
 set -euo pipefail
 
 cd /backups
-mapfile -t ALL_DIRS < <(find . -maxdepth 1 -type d -name '[0-9]*-[0-9]*' -printf '%f\n' | sort -r)
+# busybox find (this image's alpine base) has no -printf — strip the "./" prefix
+# with sed instead. Confirmed broken on the NAS: -printf silently produced no
+# output, so retention thought there were zero backups and did nothing every run.
+mapfile -t ALL_DIRS < <(find . -maxdepth 1 -type d -name '[0-9]*-[0-9]*' | sed 's|^\./||' | sort -r)
 
 if [[ ${#ALL_DIRS[@]} -eq 0 ]]; then
   echo "[retention] no backup directories found, nothing to do"
