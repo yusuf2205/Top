@@ -53,7 +53,11 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      # 127.0.0.1, not "localhost": Next's standalone server binds IPv4-only (see
+      # HOSTNAME note above), and "localhost" can resolve to ::1 first in-container,
+      # which nothing is listening on — confirmed as the actual cause of a false
+      # "unhealthy" on the NAS (manual IPv4 checks succeeded the whole time).
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -73,7 +77,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"] # see web's healthcheck note on why not "localhost"
       interval: 15s
       timeout: 5s
       retries: 3
