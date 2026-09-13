@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+.next/
+.turbo/
+build/
+
+# env
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+!.env.development.example
+!.env.staging.example
+!.env.production.example
+
+# secrets / backups
+infrastructure/backup/secrets/
+infrastructure/traefik/dynamic/middlewares.secrets.yml
+infrastructure/traefik/acme.json
+*.pem
+*.key
+*.dump
+*.sql.gz
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# prisma
+packages/database/prisma/migrations/dev.db*
+
+# misc
+coverage/
+*.tsbuildinfo

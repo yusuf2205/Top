@@ -1,0 +1,47 @@
+# Traefik static configuration — production/staging.
+# Chosen over Nginx for this project because it auto-discovers Docker containers via
+# labels (no manual reverse-proxy config edit per deploy) and auto-manages Let's Encrypt
+# certs — see FINAL-INFRASTRUCTURE-ARCHITECTURE.md / INFRASTRUCTURE.md STEP16 for the
+# reasoning. Runs as the ONLY container with published ports in this stack.
+
+api:
+  dashboard: true
+  insecure: false # dashboard is only reachable through the authenticated router below, not a raw port
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    exposedByDefault: false # a container is only routed if it explicitly opts in via labels
+    network: top_internal
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      # email intentionally NOT set here: Traefik's file provider does not interpolate
+      # environment variables, so the ACME email (a real fact we don't have yet — see
+      # "Всё ещё требует вашего решения" p.3) is passed as a CLI flag instead, from
+      # .env.production, in docker-compose.prod.yml's `command:` for reverse-proxy.
+      storage: /certs/acme.json
+      # HTTP-01 by default (works with plain port-forward 80/443, no DNS provider API needed).
+      # Switch to a DNS-01 challenge here if a wildcard cert or a dynamic-IP/DDNS setup requires it —
+      # see FINAL-INFRASTRUCTURE-ARCHITECTURE.md "Всё ещё требует вашего решения" p.3/p.4.
+      httpChallenge:
+        entryPoint: web
+
+log:
+  level: INFO
+
+accessLog: {}

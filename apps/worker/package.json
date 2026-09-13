@@ -1,0 +1,23 @@
+{
+  "name": "@top/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "healthcheck": "node dist/healthcheck.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@top/config": "workspace:*",
+    "@top/database": "workspace:*",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.10.0"
+  }
+}

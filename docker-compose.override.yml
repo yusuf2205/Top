@@ -1,0 +1,21 @@
+# Auto-loaded by `docker compose up` (no -f flags) — local development only.
+# Publishes ports directly to localhost so you can hit services without Traefik/TLS,
+# and without a domain. This is the ONLY compose file in the repo that opens ports
+# besides reverse-proxy — never copy this pattern into staging/prod.
+#
+# This runs the full containerized stack (same Dockerfiles as prod) for an
+# environment-parity check. For the fast iterate-on-code loop, prefer running
+# web/api/worker on the host instead (`pnpm dev` from the repo root) against just
+# the infra containers: `docker compose up postgres redis minio`.
+
+services:
+  web:
+    ports: ["3000:3000"]
+  api:
+    ports: ["4000:4000"]
+  postgres:
+    ports: ["5432:5432"]
+  redis:
+    ports: ["6379:6379"]
+  minio:
+    ports: ["9000:9000", "9001:9001"]

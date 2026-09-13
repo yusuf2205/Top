@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Offsite backup target — S3-compatible cold storage (Backblaze B2 / Wasabi / other).
+#
+# Setup (once Open Decision #2 — which provider — is answered):
+#   1. rclone config  → create a remote named "offsite" pointing at the chosen provider
+#   2. cp offsite-s3.sh.example offsite-s3.sh  (drop the .example suffix)
+#   3. add "offsite-s3" to BACKUP_TARGETS in .env.production (e.g. BACKUP_TARGETS=local,offsite-s3)
+#
+# Until then this file is inert (the .example suffix means backup.sh's target loop skips it).
+set -euo pipefail
+BACKUP_DIR="$1"
+DEST="offsite:top-procurement-backups/$(basename "${BACKUP_DIR}")"
+
+echo "[backup:offsite-s3] syncing ${BACKUP_DIR} -> ${DEST}"
+rclone sync "${BACKUP_DIR}" "${DEST}" --transfers=4 --checksum

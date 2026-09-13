@@ -1,0 +1,154 @@
+# Base stack — environment-agnostic service topology, healthchecks, volumes, network.
+# Local dev: `docker compose up` (docker-compose.override.yml is picked up automatically —
+#   adds host port mappings for convenience; see that file and README.md for the
+#   host-based `pnpm dev` alternative, which is the faster local loop for web/api/worker).
+# Staging:    docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+# Production: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# No service other than reverse-proxy publishes a port in the base/staging/prod config —
+# see FINAL-INFRASTRUCTURE-ARCHITECTURE.md §C (Network Architecture).
+
+name: top-procurement
+
+networks:
+  top_internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  backup_data:
+  proxy_certs:
+
+services:
+  reverse-proxy:
+    image: traefik:v3
+    networks: [top_internal]
+    volumes:
+      - proxy_certs:/certs
+      - ./infrastructure/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infrastructure/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    networks: [top_internal]
+    env_file: ${ENV_FILE_PATH:-.env}
+    environment:
+      PORT: ${WEB_PORT:-3000}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    networks: [top_internal]
+    env_file: ${ENV_FILE_PATH:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    networks: [top_internal]
+    env_file: ${ENV_FILE_PATH:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["node", "apps/worker/dist/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  postgres:
+    image: postgres:16-alpine
+    networks: [top_internal]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    networks: [top_internal]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    networks: [top_internal]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  backup:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/backup.Dockerfile
+    networks: [top_internal]
+    env_file: ${ENV_FILE_PATH:-.env}
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # Not a long-running daemon: triggered on a schedule (cron/systemd timer on the
+    # NAS host calling `docker compose run --rm backup /backup/backup.sh`), or manually.
+    profiles: ["backup"]

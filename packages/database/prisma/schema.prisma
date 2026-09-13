@@ -1,0 +1,618 @@
+// TOP Procurement — Database Schema
+// Source of truth for the schema design: ARCHITECTURE.md §5 + FINAL-INFRASTRUCTURE-ARCHITECTURE.md
+// (Attachment.bucket field added there to match the required file-metadata contract).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ────────────────────────────────────────────────────────────
+// ENUMS
+// ────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  PROCUREMENT_MANAGER
+  PROCUREMENT_SPECIALIST
+  APPROVER
+  EMPLOYEE
+  SUPPLIER // reserved for completeness; supplier users have no login in MVP — access is via RFQSupplier.portalToken
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_APPROVAL
+  APPROVED
+  REJECTED
+  RFQ_IN_PROGRESS
+  PO_CREATED
+  CLOSED
+  CANCELLED
+}
+
+enum RfqStatus {
+  DRAFT
+  SENT
+  IN_PROGRESS
+  CLOSED
+  CANCELLED
+}
+
+enum RfqSupplierStatus {
+  INVITED
+  VIEWED
+  SUBMITTED
+  DECLINED
+  EXPIRED
+}
+
+enum QuoteStatus {
+  SUBMITTED
+  NEEDS_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum ApprovalEntityType {
+  PURCHASE_REQUEST
+  PURCHASE_ORDER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  CONFIRMED
+  CANCELLED
+}
+
+enum AttachmentOwnerType {
+  PURCHASE_REQUEST
+  QUOTE
+  SUPPLIER
+  PURCHASE_ORDER
+}
+
+// ────────────────────────────────────────────────────────────
+// TENANCY / IDENTITY
+// ────────────────────────────────────────────────────────────
+
+model Organization {
+  id              String   @id @default(uuid())
+  name            String
+  legalName       String?
+  tin             String?
+  defaultCurrency String   @default("UZS")
+  timezone        String   @default("Asia/Tashkent")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users            User[]
+  departments      Department[]
+  categories       Category[]
+  suppliers        Supplier[]
+  purchaseRequests PurchaseRequest[]
+  rfqs             RFQ[]
+  purchaseOrders   PurchaseOrder[]
+  approvalRules    ApprovalRule[]
+  taxRules         TaxRule[]
+  exchangeRates    ExchangeRate[]
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  email          String
+  passwordHash   String
+  fullName       String
+  role           UserRole
+  departmentId   String?
+  department     Department?  @relation(fields: [departmentId], references: [id])
+  active         Boolean      @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  purchaseRequests PurchaseRequest[] @relation("Requester")
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Department {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+
+  users            User[]
+  purchaseRequests PurchaseRequest[]
+
+  @@unique([organizationId, name])
+  @@map("departments")
+}
+
+model Category {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  active         Boolean      @default(true)
+
+  suppliers        SupplierCategory[]
+  purchaseRequests PurchaseRequest[]
+
+  @@unique([organizationId, name])
+  @@map("categories")
+}
+
+// ────────────────────────────────────────────────────────────
+// SUPPLIERS
+// ────────────────────────────────────────────────────────────
+
+model Supplier {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  companyName    String
+  legalName      String?
+  tin            String?
+  country        String?
+  address        String?
+  bankName       String?
+  mfo            String?
+  bankAccount    String?
+  rating         Decimal?     @db.Decimal(5, 2)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  categories     SupplierCategory[]
+  contacts       SupplierContact[]
+  documents      SupplierDocument[]
+  rfqSuppliers   RFQSupplier[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([organizationId])
+  @@map("suppliers")
+}
+
+model SupplierCategory {
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([supplierId, categoryId])
+  @@map("supplier_categories")
+}
+
+model SupplierContact {
+  id         String   @id @default(uuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  fullName   String
+  phone      String?
+  email      String?
+  telegram   String?
+  isPrimary  Boolean  @default(false)
+
+  @@map("supplier_contacts")
+}
+
+model SupplierDocument {
+  id           String     @id @default(uuid())
+  supplierId   String
+  supplier     Supplier   @relation(fields: [supplierId], references: [id])
+  attachmentId String
+  attachment   Attachment @relation(fields: [attachmentId], references: [id])
+  docType      String
+  createdAt    DateTime   @default(now())
+
+  @@map("supplier_documents")
+}
+
+// ────────────────────────────────────────────────────────────
+// PURCHASE REQUEST
+// ────────────────────────────────────────────────────────────
+
+model PurchaseRequest {
+  id              String                @id @default(uuid())
+  organizationId  String
+  organization    Organization          @relation(fields: [organizationId], references: [id])
+  requestNumber   String
+  requesterId     String
+  requester       User                  @relation("Requester", fields: [requesterId], references: [id])
+  departmentId    String?
+  department      Department?           @relation(fields: [departmentId], references: [id])
+  categoryId      String?
+  category        Category?             @relation(fields: [categoryId], references: [id])
+  status          PurchaseRequestStatus @default(DRAFT)
+  estimatedBudget Decimal?              @db.Decimal(18, 2)
+  currency        String                @default("UZS")
+  priority        String                @default("normal")
+  requiredDate    DateTime?
+  reason          String?
+  aiGenerated     Boolean               @default(false)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  submittedAt     DateTime?
+
+  items            PurchaseRequestItem[]
+  comments         PurchaseRequestComment[]
+  rfqs             RFQ[]
+  approvalInstance ApprovalInstance?
+  purchaseOrders   PurchaseOrder[]
+
+  @@unique([organizationId, requestNumber])
+  @@index([organizationId, status])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestItem {
+  id                String          @id @default(uuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  itemName          String
+  description       String?
+  quantity          Decimal         @db.Decimal(18, 3)
+  unit              String
+  technicalSpec     Json?
+  // Phase 2 extension point (see FINAL-INFRASTRUCTURE-ARCHITECTURE.md "Product Master extensibility"):
+  // productId String? — nullable FK to a future Product model, additive migration, no backfill required.
+
+  @@map("purchase_request_items")
+}
+
+model PurchaseRequestComment {
+  id                String          @id @default(uuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  authorId          String
+  body              String
+  createdAt         DateTime        @default(now())
+
+  @@map("purchase_request_comments")
+}
+
+// ────────────────────────────────────────────────────────────
+// RFQ
+// ────────────────────────────────────────────────────────────
+
+model RFQ {
+  id                String          @id @default(uuid())
+  organizationId    String
+  organization      Organization    @relation(fields: [organizationId], references: [id])
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  rfqNumber         String
+  status            RfqStatus       @default(DRAFT)
+  deadline          DateTime
+  createdById       String
+  createdAt         DateTime        @default(now())
+  sentAt            DateTime?
+
+  items           RFQItem[]
+  suppliers       RFQSupplier[]
+  recommendations Recommendation[]
+
+  @@unique([organizationId, rfqNumber])
+  @@index([organizationId, status])
+  @@map("rfqs")
+}
+
+model RFQItem {
+  id            String  @id @default(uuid())
+  rfqId         String
+  rfq           RFQ     @relation(fields: [rfqId], references: [id])
+  itemName      String
+  description   String?
+  quantity      Decimal @db.Decimal(18, 3)
+  unit          String
+  technicalSpec Json?
+
+  quoteItems QuoteItem[]
+
+  @@map("rfq_items")
+}
+
+model RFQSupplier {
+  id             String            @id @default(uuid())
+  rfqId          String
+  rfq            RFQ               @relation(fields: [rfqId], references: [id])
+  supplierId     String
+  supplier       Supplier          @relation(fields: [supplierId], references: [id])
+  portalToken    String            @unique
+  tokenExpiresAt DateTime
+  status         RfqSupplierStatus @default(INVITED)
+  invitedAt      DateTime          @default(now())
+  viewedAt       DateTime?
+
+  quote Quote?
+
+  @@unique([rfqId, supplierId])
+  @@map("rfq_suppliers")
+}
+
+// ────────────────────────────────────────────────────────────
+// QUOTE
+// ────────────────────────────────────────────────────────────
+
+model Quote {
+  id                String      @id @default(uuid())
+  rfqSupplierId     String      @unique
+  rfqSupplier       RFQSupplier @relation(fields: [rfqSupplierId], references: [id])
+  currency          String
+  vatRate           Decimal?    @db.Decimal(5, 2)
+  vatIncluded       Boolean     @default(false)
+  deliveryCost      Decimal     @default(0) @db.Decimal(18, 2)
+  deliveryIncluded  Boolean     @default(false)
+  leadTimeDays      Int?
+  paymentTerms      String?
+  warranty          String?
+  notes             String?
+  status            QuoteStatus @default(SUBMITTED)
+  submittedAt       DateTime    @default(now())
+
+  items          QuoteItem[]
+  extraction     AIExtraction?
+  attachments    Attachment[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([status])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id        String  @id @default(uuid())
+  quoteId   String
+  quote     Quote   @relation(fields: [quoteId], references: [id])
+  rfqItemId String
+  rfqItem   RFQItem @relation(fields: [rfqItemId], references: [id])
+  unitPrice Decimal @db.Decimal(18, 4)
+  quantity  Decimal @db.Decimal(18, 3)
+
+  @@map("quote_items")
+}
+
+model AIExtraction {
+  id                 String    @id @default(uuid())
+  quoteId            String    @unique
+  quote              Quote     @relation(fields: [quoteId], references: [id])
+  sourceAttachmentId String
+  documentHash       String
+  model              String
+  rawFields          Json
+  confidenceScores   Json
+  needsReview        Boolean   @default(false)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([documentHash])
+  @@map("ai_extractions")
+}
+
+// ────────────────────────────────────────────────────────────
+// RECOMMENDATION (AI, versioned, audit-able)
+// ────────────────────────────────────────────────────────────
+
+model Recommendation {
+  id                     String    @id @default(uuid())
+  rfqId                  String
+  rfq                    RFQ       @relation(fields: [rfqId], references: [id])
+  version                Int       @default(1)
+  recommendedSupplierId  String
+  reasons                Json
+  estimatedSaving        Decimal?  @db.Decimal(18, 2)
+  cheapestSupplierId     String?
+  fastestSupplierId      String?
+  model                  String
+  inputSnapshot          Json
+  createdAt              DateTime  @default(now())
+  acceptedById           String?
+  acceptedAt             DateTime?
+  overridden             Boolean   @default(false)
+
+  @@index([rfqId, version])
+  @@map("recommendations")
+}
+
+// ────────────────────────────────────────────────────────────
+// APPROVAL ENGINE
+// ────────────────────────────────────────────────────────────
+
+model ApprovalRule {
+  id             String             @id @default(uuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  entityType     ApprovalEntityType
+  minAmount      Decimal            @db.Decimal(18, 2)
+  maxAmount      Decimal?           @db.Decimal(18, 2)
+  approverRole   UserRole
+  stepOrder      Int                @default(1)
+  active         Boolean            @default(true)
+
+  @@index([organizationId, entityType, active])
+  @@map("approval_rules")
+}
+
+model ApprovalInstance {
+  id                 String             @id @default(uuid())
+  entityType         ApprovalEntityType
+  purchaseRequestId  String?            @unique
+  purchaseRequest    PurchaseRequest?   @relation(fields: [purchaseRequestId], references: [id])
+  purchaseOrderId    String?            @unique
+  purchaseOrder      PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
+  status             ApprovalStatus     @default(PENDING)
+  createdAt          DateTime           @default(now())
+  completedAt        DateTime?
+
+  steps ApprovalStepInstance[]
+
+  @@map("approval_instances")
+}
+
+model ApprovalStepInstance {
+  id                  String           @id @default(uuid())
+  approvalInstanceId  String
+  approvalInstance    ApprovalInstance @relation(fields: [approvalInstanceId], references: [id])
+  stepOrder           Int
+  approverRole        UserRole
+  assignedUserId       String?
+  status               ApprovalStatus   @default(PENDING)
+  decidedById          String?
+  decidedAt            DateTime?
+  comment              String?
+
+  @@map("approval_step_instances")
+}
+
+// ────────────────────────────────────────────────────────────
+// PURCHASE ORDER
+// ────────────────────────────────────────────────────────────
+
+model PurchaseOrder {
+  id                   String              @id @default(uuid())
+  organizationId       String
+  organization         Organization        @relation(fields: [organizationId], references: [id])
+  poNumber             String
+  purchaseRequestId    String
+  purchaseRequest      PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id])
+  supplierId           String
+  supplier             Supplier            @relation(fields: [supplierId], references: [id])
+  quoteId              String
+  quote                Quote               @relation(fields: [quoteId], references: [id])
+  status               PurchaseOrderStatus @default(DRAFT)
+  currency             String
+  totalAmount          Decimal             @db.Decimal(18, 2)
+  paymentTerms         String?
+  expectedDeliveryDate DateTime?
+  createdById          String
+  createdAt            DateTime            @default(now())
+
+  items            PurchaseOrderItem[]
+  approvalInstance ApprovalInstance?
+
+  @@unique([organizationId, poNumber])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  itemName        String
+  quantity        Decimal       @db.Decimal(18, 3)
+  unit            String
+  unitPrice       Decimal       @db.Decimal(18, 4)
+
+  @@map("purchase_order_items")
+}
+
+// ────────────────────────────────────────────────────────────
+// FINANCE CONFIG
+// ────────────────────────────────────────────────────────────
+
+model TaxRule {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  taxType        String       @default("VAT")
+  rate           Decimal      @db.Decimal(5, 2)
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  active         Boolean      @default(true)
+
+  @@map("tax_rules")
+}
+
+model ExchangeRate {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  fromCurrency   String
+  toCurrency     String
+  rate           Decimal      @db.Decimal(18, 6)
+  effectiveDate  DateTime
+
+  @@unique([organizationId, fromCurrency, toCurrency, effectiveDate])
+  @@map("exchange_rates")
+}
+
+// ────────────────────────────────────────────────────────────
+// CROSS-CUTTING
+// ────────────────────────────────────────────────────────────
+
+model Attachment {
+  id             String              @id @default(uuid())
+  organizationId String
+  ownerType      AttachmentOwnerType
+  ownerId        String
+  bucket         String              @default("top-documents")
+  objectKey      String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  uploadedById   String
+  createdAt      DateTime            @default(now())
+
+  quote             Quote?             @relation(fields: [quoteId], references: [id])
+  quoteId            String?
+  supplierDocuments SupplierDocument[]
+
+  @@index([organizationId, ownerType, ownerId])
+  @@map("attachments")
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String
+  type           String
+  channel        String
+  payload        Json
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, userId, readAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String
+  oldValue       Json?
+  newValue       Json?
+  ipAddress      String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, entityType, entityId])
+  @@map("audit_logs")
+}

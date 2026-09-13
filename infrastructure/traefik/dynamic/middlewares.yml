@@ -1,0 +1,29 @@
+# Reusable Traefik middlewares, referenced from service labels in docker-compose.prod.yml.
+# No secrets in this file (it IS committed to git) — the basic-auth credential for
+# top-status lives in dynamic/middlewares.secrets.yml (gitignored, created from
+# middlewares.secrets.yml.example — see that file for how to generate the hash).
+http:
+  middlewares:
+    auth-rate-limit:
+      rateLimit:
+        average: 10 # requests/second sustained
+        burst: 20
+        period: 1m
+        sourceCriterion:
+          ipStrategy: {}
+
+    portal-rate-limit:
+      rateLimit:
+        average: 5
+        burst: 10
+        period: 1m
+        sourceCriterion:
+          ipStrategy: {}
+
+    security-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
