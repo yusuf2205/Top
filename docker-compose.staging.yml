@@ -1,6 +1,7 @@
-# Staging overrides. Structurally identical to prod (same images, same TLS/proxy
-# pattern) so staging actually validates what will run in production — only the
-# domain and resource ceilings differ.
+# Staging overrides. Structurally identical to prod (same images, same Cloudflare
+# Tunnel pattern) so staging actually validates what will run in production — only the
+# domain, resource ceilings, and tunnel token differ (use a SEPARATE Cloudflare Tunnel
+# for staging, not the same one as prod — separate token in .env.staging).
 #
 # IMPORTANT: run staging with a distinct project name so its volumes/network/containers
 # never collide with a production stack on the same NAS:
@@ -11,12 +12,24 @@
 services:
   reverse-proxy:
     restart: always
-    ports: ["80:80", "443:443"]
-    command:
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+    # No `ports:` — see docker-compose.prod.yml; same Cloudflare Tunnel pattern.
     deploy:
       resources:
         limits: { cpus: "0.2", memory: 96M }
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks: [top_internal]
+    depends_on:
+      reverse-proxy:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits: { cpus: "0.1", memory: 96M }
 
   web:
     restart: unless-stopped
@@ -26,7 +39,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-staging.rule=Host(`${WEB_DOMAIN}`)"
-      - "traefik.http.routers.web-staging.tls.certresolver=letsencrypt"
       - "traefik.http.services.web-staging.loadbalancer.server.port=3000"
 
   api:
@@ -37,7 +49,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api-staging.rule=Host(`${API_DOMAIN}`)"
-      - "traefik.http.routers.api-staging.tls.certresolver=letsencrypt"
       - "traefik.http.services.api-staging.loadbalancer.server.port=4000"
 
   worker:

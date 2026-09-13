@@ -1,19 +1,19 @@
-# Production overrides — resource limits, restart policy, Traefik routing/TLS.
+# Production overrides — resource limits, restart policy, Traefik host-based routing,
+# Cloudflare Tunnel for public exposure (no port-forward, no Let's Encrypt — Cloudflare
+# terminates TLS at its edge, matching how git.mygithub.uz is already exposed).
 # Run: docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# (--env-file drives ${WEB_DOMAIN}/${ACME_EMAIL}/etc. substitution in these YAML files;
-# .env.production itself sets ENV_FILE_PATH=.env.production, which is what each
-# container actually loads via docker-compose.yml's `env_file:` directive.)
+# (--env-file drives ${WEB_DOMAIN}/etc. substitution in these YAML files; .env.production
+# itself sets ENV_FILE_PATH=.env.production, which is what each container actually loads
+# via docker-compose.yml's `env_file:` directive.)
 #
 # Resource limits below are sized against the UGREEN DXP4800 Plus (5 cores/6 threads) —
-# see FINAL-INFRASTRUCTURE-ARCHITECTURE.md §H Resource Estimate. Revisit once real
-# RAM/usage numbers are known (see that document's "Всё ещё требует вашего решения").
+# see FINAL-INFRASTRUCTURE-ARCHITECTURE.md §H Resource Estimate.
 
 services:
   reverse-proxy:
     restart: always
-    ports: ["80:80", "443:443"]
-    command:
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+    # No `ports:` here on purpose — reverse-proxy is reachable only from `cloudflared`
+    # over top_internal. Public exposure/TLS is Cloudflare's job now, not Traefik's.
     deploy:
       resources:
         limits: { cpus: "0.3", memory: 128M }
@@ -22,7 +22,23 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`traefik.${API_DOMAIN}`)"
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.middlewares=status-basic-auth@file"
-      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks: [top_internal]
+    depends_on:
+      reverse-proxy:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits: { cpus: "0.2", memory: 128M }
+    # No healthcheck of its own — cloudflared's container has no built-in HTTP endpoint
+    # to probe; its actual health is "can Cloudflare reach reverse-proxy through it",
+    # observable from the Cloudflare Zero Trust dashboard, not docker healthcheck.
 
   web:
     restart: always
@@ -32,7 +48,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web.rule=Host(`${WEB_DOMAIN}`)"
-      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
       - "traefik.http.routers.web.middlewares=security-headers@file"
       - "traefik.http.services.web.loadbalancer.server.port=3000"
 
@@ -44,16 +59,13 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api.rule=Host(`${API_DOMAIN}`)"
-      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.api.middlewares=security-headers@file"
       - "traefik.http.services.api.loadbalancer.server.port=4000"
       # Stricter limits on the auth + supplier-portal surfaces specifically:
       - "traefik.http.routers.api-auth.rule=Host(`${API_DOMAIN}`) && PathPrefix(`/api/v1/auth`)"
-      - "traefik.http.routers.api-auth.tls.certresolver=letsencrypt"
       - "traefik.http.routers.api-auth.middlewares=auth-rate-limit@file,security-headers@file"
       - "traefik.http.routers.api-auth.service=api"
       - "traefik.http.routers.api-portal.rule=Host(`${API_DOMAIN}`) && PathPrefix(`/api/v1/portal`)"
-      - "traefik.http.routers.api-portal.tls.certresolver=letsencrypt"
       - "traefik.http.routers.api-portal.middlewares=portal-rate-limit@file,security-headers@file"
       - "traefik.http.routers.api-portal.service=api"
 

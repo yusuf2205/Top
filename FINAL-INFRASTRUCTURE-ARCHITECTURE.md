@@ -474,12 +474,39 @@ M0 считается завершённым, когда выполнены вс
 
 ## Всё ещё требует вашего решения (факты, не архитектура — без ответа M0a не закроется)
 
-Эти пять пунктов поднимались и в прошлом документе и пока не получили ответа — без них Definition of Done из раздела выше не может быть закрыт целиком (пункты про network/domain/backup target):
+Эти пять пунктов поднимались и в прошлом документе — статус на 2026-09-14:
 
-1. Сколько RAM физически установлено на DXP4800 Plus сейчас (расчёт в разделе H предполагает от 16–32GB для комфортного запаса).
-2. Offsite backup destination — S3-совместимое холодное хранилище (Backblaze B2/Wasabi) или второй физический носитель/локация.
-3. Домен и DNS-провайдер (для `WEB_DOMAIN`/`API_DOMAIN` и способа получения TLS-сертификата).
-4. Статический внешний IP или нужен DDNS-клиент.
-5. Подтверждение, что исходящий HTTPS с NAS до Anthropic API ничем не блокируется на роутере/провайдере.
+1. ~~Сколько RAM физически установлено на DXP4800 Plus~~ — **закрыто**: подтверждено живым SSH-recon, ~62GiB установлено, ~51GiB свободно на момент проверки. Расчёт в разделе H (16–32GB) — с большим запасом.
+2. Offsite backup destination — S3-совместимое холодное хранилище (Backblaze B2/Wasabi) или второй физический носитель/локация. **Всё ещё открыто.**
+3. ~~Домен и DNS-провайдер~~ — **закрыто**: `app.mygithub.uz` (web) + `api.mygithub.uz` (api) — см. Addendum ниже, полностью меняет ответ и на п.4.
+4. ~~Статический внешний IP или нужен DDNS-клиент~~ — **снят с повестки**: см. Addendum — Cloudflare Tunnel не требует ни того, ни другого.
+5. Подтверждение, что исходящий HTTPS с NAS до Anthropic API ничем не блокируется на роутере/провайдере. **Всё ещё открыто** (не проверялось).
 
-Дальше не иду, пока вы явно не подтвердите этот документ (раздел A–H) целиком — как и просит п.18.
+---
+
+## Addendum (2026-09-14) — Cloudflare Tunnel заменяет port-forward + Let's Encrypt
+
+Раздел C (Network Architecture) выше описывает **первоначальный план**: port-forward 80/443 на роутере → Traefik → Let's Encrypt (HTTP-01). На практике выяснилось, что оба доступных домена (`mygithub.uz`, `nuradocs.uz`) уже проксируются через **Cloudflare Tunnel** — тем же способом уже поднят `git.mygithub.uz` (Gitea на этом же NAS). Решение: подключить TOP Procurement тем же способом, а не изобретать отдельную схему.
+
+**Что меняется:**
+
+```text
+БЫЛО:
+Internet ──(443, port-forward)──▶ Router ──▶ Traefik (TLS/ACME) ──▶ web/api
+
+СТАЛО:
+Internet ──▶ Cloudflare edge (TLS termination) ──▶ Cloudflare Tunnel
+    ──(исходящее соединение, НЕ port-forward)──▶ cloudflared (в docker-compose, top_internal)
+    ──(plain HTTP, внутри сети)──▶ Traefik (host-based routing + rate-limit/security-headers middleware)
+    ──▶ web / api
+```
+
+- **Роутер:** порты 80/443 наружу открывать не нужно вообще — ни сейчас, ни в будущем. `cloudflared` держит исходящее соединение к Cloudflare, как любой обычный клиент.
+- **TLS:** терминируется на границе Cloudflare — Traefik больше не занимается сертификатами, `certificatesResolvers`/ACME убраны из `traefik.yml`.
+- **Traefik остаётся**, но меняет роль: был публичной точкой входа, стал внутренним host-based роутером (`app.mygithub.uz` vs `api.mygithub.uz` → разные контейнеры) + держит rate-limit/security-headers middleware. Слушает только на `top_internal`, никуда не публикуется.
+- **Domain/DDNS проблема снята полностью** — п.3 и п.4 из списка выше закрыты одним решением, не двумя разными.
+- **Компромисс:** production-доступность TOP Procurement теперь зависит от Cloudflare (а не только от вашего роутера) — тот же trade-off, на который вы уже пошли для Gitea, так что это не новый риск, а уже принятый.
+- **Реализация:** `docker-compose.prod.yml`/`docker-compose.staging.yml` получили сервис `cloudflared` (`cloudflare/cloudflared:latest`, `tunnel run`, токен из `CLOUDFLARE_TUNNEL_TOKEN`). Staging и production используют **разные** Cloudflare Tunnel (разные токены) — чтобы их можно было отзывать независимо.
+- **Ручной шаг (не автоматизируется без Cloudflare API-токена):** создать tunnel в Cloudflare Zero Trust dashboard (Networks → Tunnels), добавить Public Hostname записи `app.mygithub.uz`/`api.mygithub.uz` → `http://reverse-proxy:80`, скопировать токен в `.env.production`. Инструкция — прямо в `.env.production.example`.
+
+Раздел C выше и вся ветка "port-forward + Let's Encrypt" остаются в документе как **fallback**, если Cloudflare Tunnel когда-то будет отключён — тогда `ACME_EMAIL`/`certificatesResolvers`/публикация 80:80,443:443 возвращаются как было (сохранено в git-истории `traefik.yml`/`docker-compose.prod.yml`).
