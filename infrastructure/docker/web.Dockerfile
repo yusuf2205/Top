@@ -16,6 +16,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=installer /app/ .
 COPY --from=pruner /app/out/full/ .
+COPY tsconfig.base.json ./tsconfig.base.json
 RUN corepack prepare pnpm@12.4.1 --activate
 RUN npx turbo build --filter=@top/web
 
