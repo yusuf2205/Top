@@ -1,4 +1,7 @@
 FROM node:22-alpine AS base
+# see api.Dockerfile — Prisma needs libssl present both at generate-time (to detect
+# the right engine variant) and at runtime (to load it).
+RUN apk add --no-cache openssl
 RUN corepack enable
 
 FROM base AS pruner

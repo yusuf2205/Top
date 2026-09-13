@@ -1,6 +1,12 @@
 # Build context: repo root (docker compose build sets this — see docker-compose.yml)
 # Follows the standard turborepo + pnpm Docker pattern: prune -> install -> build -> slim runner.
 FROM node:22-alpine AS base
+# Prisma's query engine needs libssl at runtime, and needs it present at `generate`
+# time to correctly detect which OpenSSL build to fetch — Alpine ships neither by
+# default. Without this: "Error loading shared library libssl.so.1.1: No such file
+# or directory" (confirmed on the NAS — Prisma silently defaulted to the wrong,
+# older openssl-1.1 engine variant when it couldn't detect anything).
+RUN apk add --no-cache openssl
 RUN corepack enable
 
 FROM base AS pruner
