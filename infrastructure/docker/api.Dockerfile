@@ -34,6 +34,10 @@ ENV NODE_ENV=production
 RUN addgroup -g 1001 -S nodejs && adduser -S api -u 1001
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
+# pnpm's isolated node_modules puts apps/api's own direct deps (reflect-metadata,
+# @nestjs/*, ...) as symlinks under apps/api/node_modules, not hoisted to the root —
+# without this, `node apps/api/dist/main.js` fails with MODULE_NOT_FOUND at boot.
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 USER api
