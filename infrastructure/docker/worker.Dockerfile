@@ -20,9 +20,7 @@ COPY --from=pruner /app/out/full/ .
 # is a root file referenced only via TS "extends", so it isn't pruned in automatically.
 COPY tsconfig.base.json ./tsconfig.base.json
 RUN corepack prepare pnpm@12.4.1 --activate
-# see api.Dockerfile — @prisma/client's postinstall can't find our non-default schema
-# location, so generate explicitly before compiling.
-RUN pnpm --filter @top/database exec prisma generate
+# see api.Dockerfile — @top/database's "build" script runs prisma generate first.
 RUN npx turbo build --filter=@top/worker
 
 FROM base AS runner

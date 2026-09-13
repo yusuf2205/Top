@@ -22,10 +22,10 @@ COPY --from=pruner /app/out/full/ .
 # is a root file referenced only via TS "extends", so it isn't pruned in automatically.
 COPY tsconfig.base.json ./tsconfig.base.json
 RUN corepack prepare pnpm@12.4.1 --activate
-# @prisma/client's own postinstall can't find a non-default schema location (it warns
-# and skips) — generate explicitly so the typed client (and the extension typings
-# packages/database/src/client.ts depends on) actually exist before compiling.
-RUN pnpm --filter @top/database exec prisma generate
+# @top/database's own "build" script runs `prisma generate` before `tsc` (its
+# postinstall can't find our non-default schema location and silently skips) —
+# turbo's `^build` dependency graph runs that before this, so the typed client
+# exists before api compiles against it.
 RUN npx turbo build --filter=@top/api
 
 FROM base AS runner
