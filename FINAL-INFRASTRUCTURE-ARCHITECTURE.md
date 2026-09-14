@@ -478,7 +478,7 @@ M0 считается завершённым, когда выполнены вс
 
 1. ~~Сколько RAM физически установлено на DXP4800 Plus~~ — **закрыто**: подтверждено живым SSH-recon, ~62GiB установлено, ~51GiB свободно на момент проверки. Расчёт в разделе H (16–32GB) — с большим запасом.
 2. Offsite backup destination — S3-совместимое холодное хранилище (Backblaze B2/Wasabi) или второй физический носитель/локация. **Всё ещё открыто.**
-3. ~~Домен и DNS-провайдер~~ — **закрыто**: `app.mygithub.uz` (web) + `api.mygithub.uz` (api) — см. Addendum ниже, полностью меняет ответ и на п.4.
+3. ~~Домен и DNS-провайдер~~ — **закрыто**: изначально планировался `app.mygithub.uz`/`api.mygithub.uz`, но 2026-09-14 куплен отдельный домен `toppro.uz` специально под продукт — теперь `app.toppro.uz` (web) + `api.toppro.uz` (api). См. Addendum ниже, полностью меняет ответ и на п.4.
 4. ~~Статический внешний IP или нужен DDNS-клиент~~ — **снят с повестки**: см. Addendum — Cloudflare Tunnel не требует ни того, ни другого.
 5. Подтверждение, что исходящий HTTPS с NAS до Anthropic API ничем не блокируется на роутере/провайдере. **Всё ещё открыто** (не проверялось).
 
@@ -486,7 +486,7 @@ M0 считается завершённым, когда выполнены вс
 
 ## Addendum (2026-09-14) — Cloudflare Tunnel заменяет port-forward + Let's Encrypt
 
-Раздел C (Network Architecture) выше описывает **первоначальный план**: port-forward 80/443 на роутере → Traefik → Let's Encrypt (HTTP-01). На практике выяснилось, что оба доступных домена (`mygithub.uz`, `nuradocs.uz`) уже проксируются через **Cloudflare Tunnel** — тем же способом уже поднят `git.mygithub.uz` (Gitea на этом же NAS). Решение: подключить TOP Procurement тем же способом, а не изобретать отдельную схему.
+Раздел C (Network Architecture) выше описывает **первоначальный план**: port-forward 80/443 на роутере → Traefik → Let's Encrypt (HTTP-01). На практике выяснилось, что уже используемые домены (`mygithub.uz`, `nuradocs.uz`) проксируются через **Cloudflare Tunnel** — тем же способом уже поднят `git.mygithub.uz` (Gitea на этом же NAS). Решение: подключить TOP Procurement тем же механизмом (Cloudflare Tunnel), но на **отдельном, специально купленном домене** `toppro.uz` (2026-09-14) — чтобы продукт не жил на поддомене личной инфраструктуры пользователя.
 
 **Что меняется:**
 
@@ -503,10 +503,10 @@ Internet ──▶ Cloudflare edge (TLS termination) ──▶ Cloudflare Tunnel
 
 - **Роутер:** порты 80/443 наружу открывать не нужно вообще — ни сейчас, ни в будущем. `cloudflared` держит исходящее соединение к Cloudflare, как любой обычный клиент.
 - **TLS:** терминируется на границе Cloudflare — Traefik больше не занимается сертификатами, `certificatesResolvers`/ACME убраны из `traefik.yml`.
-- **Traefik остаётся**, но меняет роль: был публичной точкой входа, стал внутренним host-based роутером (`app.mygithub.uz` vs `api.mygithub.uz` → разные контейнеры) + держит rate-limit/security-headers middleware. Слушает только на `top_internal`, никуда не публикуется.
+- **Traefik остаётся**, но меняет роль: был публичной точкой входа, стал внутренним host-based роутером (`app.toppro.uz` vs `api.toppro.uz` → разные контейнеры) + держит rate-limit/security-headers middleware. Слушает только на `top_internal`, никуда не публикуется.
 - **Domain/DDNS проблема снята полностью** — п.3 и п.4 из списка выше закрыты одним решением, не двумя разными.
 - **Компромисс:** production-доступность TOP Procurement теперь зависит от Cloudflare (а не только от вашего роутера) — тот же trade-off, на который вы уже пошли для Gitea, так что это не новый риск, а уже принятый.
 - **Реализация:** `docker-compose.prod.yml`/`docker-compose.staging.yml` получили сервис `cloudflared` (`cloudflare/cloudflared:latest`, `tunnel run`, токен из `CLOUDFLARE_TUNNEL_TOKEN`). Staging и production используют **разные** Cloudflare Tunnel (разные токены) — чтобы их можно было отзывать независимо.
-- **Ручной шаг (не автоматизируется без Cloudflare API-токена):** создать tunnel в Cloudflare Zero Trust dashboard (Networks → Tunnels), добавить Public Hostname записи `app.mygithub.uz`/`api.mygithub.uz` → `http://reverse-proxy:80`, скопировать токен в `.env.production`. Инструкция — прямо в `.env.production.example`.
+- **Ручной шаг (не автоматизируется без Cloudflare API-токена):** добавить зону `toppro.uz` в Cloudflare (сменить NS-серверы у регистратора на выданные Cloudflare), затем создать tunnel в Cloudflare Zero Trust dashboard (Networks → Tunnels), добавить Public Hostname записи `app.toppro.uz`/`api.toppro.uz` → `http://reverse-proxy:80`, скопировать токен в `.env.production`. Инструкция — прямо в `.env.production.example`.
 
 Раздел C выше и вся ветка "port-forward + Let's Encrypt" остаются в документе как **fallback**, если Cloudflare Tunnel когда-то будет отключён — тогда `ACME_EMAIL`/`certificatesResolvers`/публикация 80:80,443:443 возвращаются как было (сохранено в git-истории `traefik.yml`/`docker-compose.prod.yml`).
