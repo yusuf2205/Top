@@ -24,6 +24,7 @@ volumes:
 services:
   reverse-proxy:
     image: traefik:v3
+    restart: unless-stopped
     networks: [top_internal]
     volumes:
       - proxy_certs:/certs
@@ -40,6 +41,7 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/web.Dockerfile
+    restart: unless-stopped
     networks: [top_internal]
     env_file: ${ENV_FILE_PATH:-.env}
     environment:
@@ -67,6 +69,7 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/api.Dockerfile
+    restart: unless-stopped
     networks: [top_internal]
     env_file: ${ENV_FILE_PATH:-.env}
     depends_on:
@@ -87,6 +90,7 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/worker.Dockerfile
+    restart: unless-stopped
     networks: [top_internal]
     env_file: ${ENV_FILE_PATH:-.env}
     depends_on:
@@ -105,6 +109,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     networks: [top_internal]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -121,6 +126,7 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
     networks: [top_internal]
     volumes:
       - redis_data:/data
@@ -133,6 +139,7 @@ services:
   minio:
     image: quay.io/minio/minio
     command: server /data --console-address ":9001"
+    restart: unless-stopped
     networks: [top_internal]
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
