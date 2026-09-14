@@ -6,7 +6,8 @@ function extractRefreshCookie(res: request.Response): string {
   const raw = res.headers["set-cookie"] as unknown as string[] | undefined;
   const cookie = raw?.find((c) => c.startsWith("top_refresh_token="));
   if (!cookie) throw new Error("No top_refresh_token cookie in response");
-  return cookie.split(";")[0]; // "top_refresh_token=<value>"
+  const [nameValue] = cookie.split(";"); // "top_refresh_token=<value>"
+  return nameValue ?? cookie;
 }
 
 describe("Auth flow (register → login → me → refresh → logout)", () => {
