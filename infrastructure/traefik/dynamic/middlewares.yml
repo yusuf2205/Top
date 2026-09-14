@@ -4,21 +4,26 @@
 # middlewares.secrets.yml.example — see that file for how to generate the hash).
 http:
   middlewares:
+    # M1.1 audit: `sourceCriterion.ipStrategy: {}` (empty map) fails Traefik
+    # v3's config parser with "ipStrategy cannot be a standalone element" —
+    # found live, the first time a request was ever routed through Traefik
+    # with a real Host header (DNS hadn't propagated before this). The error
+    # broke the file provider entirely, which broke every @file middleware
+    # reference, which took down routing for the whole app (fail-closed: 404,
+    # not fail-open — but still a production-breaking config bug). Omitting
+    # sourceCriterion entirely uses Traefik's default (client remote IP,
+    # depth 0), which is exactly the intended per-IP behavior anyway.
     auth-rate-limit:
       rateLimit:
         average: 10 # requests/second sustained
         burst: 20
         period: 1m
-        sourceCriterion:
-          ipStrategy: {}
 
     portal-rate-limit:
       rateLimit:
         average: 5
         burst: 10
         period: 1m
-        sourceCriterion:
-          ipStrategy: {}
 
     security-headers:
       headers:
