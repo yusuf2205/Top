@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { Prisma } from "@top/database";
 import type { createSystemPrismaClient } from "@top/database";
 import type { CurrentUser } from "@top/types";
 import type { RegisterInput, LoginInput } from "@top/validation";
@@ -39,21 +40,37 @@ export class AuthService {
 
     const passwordHash = await this.passwords.hash(input.password);
 
-    const { organization, user } = await this.db.$transaction(async (tx) => {
-      const organization = await tx.organization.create({
-        data: { name: input.organizationName },
+    // The findUnique check above is only a fast-path UX check, not the real
+    // guard: two concurrent registrations for the same email can both pass it
+    // before either commits. User.email's DB-level unique constraint is the
+    // actual source of truth (M1.1 audit §46) — catch its violation here and
+    // turn it into the same clean 409 rather than an opaque 500.
+    let organization: { id: string; name: string };
+    let user: { id: string; email: string; fullName: string; role: import("@top/database").UserRole; organizationId: string };
+    try {
+      const created = await this.db.$transaction(async (tx) => {
+        const organization = await tx.organization.create({
+          data: { name: input.organizationName },
+        });
+        const user = await tx.user.create({
+          data: {
+            organizationId: organization.id,
+            email: input.email,
+            passwordHash,
+            fullName: input.fullName,
+            role: "ADMIN",
+          },
+        });
+        return { organization, user };
       });
-      const user = await tx.user.create({
-        data: {
-          organizationId: organization.id,
-          email: input.email,
-          passwordHash,
-          fullName: input.fullName,
-          role: "ADMIN",
-        },
-      });
-      return { organization, user };
-    });
+      organization = created.organization;
+      user = created.user;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("An account with this email already exists");
+      }
+      throw err;
+    }
 
     await this.audit.log({
       organizationId: organization.id,

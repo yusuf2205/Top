@@ -30,13 +30,25 @@ export class TokenService {
       role: user.role,
       email: user.email,
     };
-    return this.jwt.sign(payload, { secret: env.JWT_ACCESS_SECRET, expiresIn: env.JWT_ACCESS_TTL });
+    return this.jwt.sign(payload, {
+      secret: env.JWT_ACCESS_SECRET,
+      expiresIn: env.JWT_ACCESS_TTL,
+      algorithm: "HS256",
+    });
   }
 
   verifyAccessToken(token: string): AccessTokenClaims {
     const env = loadEnv();
     try {
-      return this.jwt.verify<AccessTokenClaims>(token, { secret: env.JWT_ACCESS_SECRET });
+      // M1.1 audit: explicitly pin the allowed algorithm rather than relying
+      // on jsonwebtoken's default inference (which is HMAC-only for a plain
+      // string secret and does already reject "alg: none"/RS256-confusion —
+      // but an explicit allow-list is cheap, local, and doesn't depend on that
+      // library-default behavior staying the same across versions).
+      return this.jwt.verify<AccessTokenClaims>(token, {
+        secret: env.JWT_ACCESS_SECRET,
+        algorithms: ["HS256"],
+      });
     } catch {
       throw new UnauthorizedException("Invalid or expired access token");
     }

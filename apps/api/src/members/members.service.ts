@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@top/database";
 import type { createSystemPrismaClient, createTenantSafePrismaClient, UserRole } from "@top/database";
 import type { AcceptInvitationInput, InviteMemberInput } from "@top/validation";
 import type { OrganizationMember, PendingInvitation } from "@top/types";
@@ -143,22 +144,34 @@ export class MembersService {
     }
 
     const passwordHash = await this.passwords.hash(input.password);
-    const user = await this.systemDb.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          organizationId: invitation.organizationId,
-          email: invitation.email,
-          passwordHash,
-          fullName: input.fullName,
-          role: invitation.role,
-        },
+    // Same race-condition rationale as AuthService.register: two concurrent
+    // accepts of a still-valid token (or a token accept racing a fresh
+    // register for the same email) can both pass the pre-check above before
+    // either commits — User.email's unique constraint is the real guard.
+    let user: { id: string };
+    try {
+      user = await this.systemDb.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            organizationId: invitation.organizationId,
+            email: invitation.email,
+            passwordHash,
+            fullName: input.fullName,
+            role: invitation.role,
+          },
+        });
+        await tx.invitation.update({
+          where: { id: invitation.id },
+          data: { status: "ACCEPTED", acceptedAt: new Date() },
+        });
+        return user;
       });
-      await tx.invitation.update({
-        where: { id: invitation.id },
-        data: { status: "ACCEPTED", acceptedAt: new Date() },
-      });
-      return user;
-    });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("A user with this email already exists");
+      }
+      throw err;
+    }
 
     await this.audit.log({
       organizationId: invitation.organizationId,

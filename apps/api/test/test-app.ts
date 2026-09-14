@@ -22,3 +22,11 @@ export async function createTestApp(): Promise<INestApplication> {
 export function uniqueEmail(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
 }
+
+/** Extracts "top_refresh_token=<value>" from a Set-Cookie response header, for reuse as a request Cookie header. */
+export function extractRefreshCookie(setCookieHeader: string[] | undefined): string {
+  const cookie = setCookieHeader?.find((c) => c.startsWith("top_refresh_token="));
+  if (!cookie) throw new Error("No top_refresh_token cookie in response");
+  const [nameValue] = cookie.split(";");
+  return nameValue ?? cookie;
+}

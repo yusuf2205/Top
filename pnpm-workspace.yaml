@@ -23,3 +23,9 @@ allowBuilds:
 overrides:
   enhanced-resolve: "5.25.0"
   schema-utils: "4.4.0"
+  # M1.1 security audit: transitive via @nestjs/platform-express, not directly
+  # used anywhere yet (no file-upload endpoints exist in M1) so not currently
+  # exploitable — bumped anyway since it's a same-major, low-risk patch that
+  # closes several HIGH-severity DoS advisories before M2 actually starts
+  # using multer for Attachment uploads.
+  multer: "2.3.0"
