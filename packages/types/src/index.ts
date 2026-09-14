@@ -74,3 +74,40 @@ export interface HealthStatus {
   timestamp: string;
   checks?: Record<string, "ok" | "down">;
 }
+
+export const InvitationStatus = {
+  PENDING: "PENDING",
+  ACCEPTED: "ACCEPTED",
+  EXPIRED: "EXPIRED",
+  REVOKED: "REVOKED",
+} as const;
+export type InvitationStatus = (typeof InvitationStatus)[keyof typeof InvitationStatus];
+
+/** Shape of GET /api/v1/auth/me — the frontend's source of truth for "who am I". */
+export interface CurrentUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  organizationId: string;
+  organizationName: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: InvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+}

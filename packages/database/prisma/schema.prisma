@@ -86,6 +86,13 @@ enum AttachmentOwnerType {
   PURCHASE_ORDER
 }
 
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
 // ────────────────────────────────────────────────────────────
 // TENANCY / IDENTITY
 // ────────────────────────────────────────────────────────────
@@ -113,6 +120,7 @@ model Organization {
   exchangeRates    ExchangeRate[]
   auditLogs        AuditLog[]
   notifications    Notification[]
+  invitations      Invitation[]
 
   @@map("organizations")
 }
@@ -133,10 +141,59 @@ model User {
   updatedAt      DateTime     @updatedAt
 
   purchaseRequests PurchaseRequest[] @relation("Requester")
+  refreshTokens     RefreshToken[]
+  invitationsSent   Invitation[]     @relation("InvitedBy")
 
-  @@unique([organizationId, email])
+  // Global uniqueness (not per-organization): M1 added self-service login by
+  // email+password alone, with no organization selector on the login form —
+  // the same email cannot belong to two organizations. See top_m1_auth memory
+  // / M1 implementation report for the reasoning.
+  @@unique([email])
   @@index([organizationId])
   @@map("users")
+}
+
+// Opaque refresh tokens are never stored raw — only their SHA-256 hash, so a
+// database read alone can't be replayed as a live session. Rotation: every
+// /auth/refresh call issues a new token and revokes this one, chaining via
+// replacedByTokenId. Reuse of an already-revoked token is treated as evidence
+// of token theft and revokes the user's entire active token set (see AuthService).
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  tokenHash         String    @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?   @unique
+  createdAt         DateTime  @default(now())
+  userAgent         String?
+  ipAddress         String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// Invitation token is stored hashed (same rationale as RefreshToken). Lookup by
+// token during accept happens before the invitee has any session/tenant
+// context, so it goes through the system (non-tenant-scoped) Prisma client —
+// same carve-out as login/register.
+model Invitation {
+  id             String           @id @default(uuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  email          String
+  role           UserRole
+  tokenHash      String           @unique
+  status         InvitationStatus @default(PENDING)
+  invitedById    String
+  invitedBy      User             @relation("InvitedBy", fields: [invitedById], references: [id])
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([organizationId, status])
+  @@map("invitations")
 }
 
 model Department {

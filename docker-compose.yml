@@ -41,6 +41,8 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
     restart: unless-stopped
     networks: [top_internal]
     env_file: ${ENV_FILE_PATH:-.env}

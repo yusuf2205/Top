@@ -41,6 +41,9 @@ services:
     # observable from the Cloudflare Zero Trust dashboard, not docker healthcheck.
 
   web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN}
     restart: always
     deploy:
       resources:

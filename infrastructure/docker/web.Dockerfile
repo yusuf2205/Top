@@ -18,6 +18,12 @@ COPY --from=installer /app/ .
 COPY --from=pruner /app/out/full/ .
 COPY tsconfig.base.json ./tsconfig.base.json
 RUN corepack prepare pnpm@12.4.1 --activate
+# Next.js inlines NEXT_PUBLIC_* vars into the client bundle at BUILD time, not
+# runtime — must be passed as a build arg (see docker-compose.yml `build.args`
+# for web), not just an env_file entry, or the browser bundle would silently
+# keep pointing at whatever it was last built with.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npx turbo build --filter=@top/web
 
 FROM base AS runner

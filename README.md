@@ -125,8 +125,39 @@ docker compose -f docker-compose.yml run --rm backup /backup/restore.sh <timesta
 4. Статический внешний IP или DDNS
 5. Исходящий HTTPS с NAS до Anthropic API — не проверялось в этом проходе
 
+---
+
+## M1 — Auth + Organization + RBAC
+
+Реализовано поверх зафиксированной архитектуры (ARCHITECTURE.md §3.2/§6): **enum-based RBAC** (6 ролей на `User`, без отдельных таблиц Role/Permission — сознательное решение, не упрощение "по недосмотру"), **один User = одна Organization** (без Membership/мульти-орг). Self-service регистрация (`POST /auth/register`) добавлена поверх этой модели как обоснованное расширение — детали и весь traceability между исходным промптом задачи и итоговыми решениями см. в M1 IMPLEMENTATION REPORT (последнее сообщение ассистента в этой ветке разработки).
+
+**Что реализовано:**
+- Auth: register / login / logout / refresh / me — access token (JWT, 15 мин, in-memory на фронте) + refresh token (opaque, hashed, httpOnly cookie, ротация с обнаружением повторного использования)
+- Пароли — `crypto.scrypt` (Node built-in), не argon2 — сознательный выбор, чтобы не тащить нативный бинарник в Alpine-образ (см. `apps/api/src/common/auth/password.service.ts`)
+- Tenant isolation — `TenantContextInterceptor` оборачивает каждый authenticated-запрос в `runWithTenantContext()`, дальше работает уже существующий с M0 Prisma Client Extension
+- RBAC — `JwtAuthGuard` → `TenantGuard` → `RolesGuard`, `@Roles()`/`@Public()` декораторы
+- Organization: `GET/PATCH /organizations/current`
+- Members: список, приглашение по email+роли (ссылка отдаётся админу вручную — **email ещё не подключён**, SMTP не настроен), accept по одноразовому токену, смена роли, soft-remove — с защитой "нельзя разжаловать/удалить последнего Admin"
+- Audit log на все ключевые события (USER_LOGIN, INVITATION_CREATED, MEMBER_ROLE_CHANGED и т.д.), без утечки паролей/токенов в лог
+- Frontend: `/login`, `/register`, `/dashboard`, `/settings/organization`, `/settings/members`, `/invite/:token`
+
+**Тесты:**
+```bash
+# Unit (без БД, работают где угодно):
+pnpm --filter @top/api test -- --testPathPattern='\.spec\.ts$' --testPathIgnorePatterns=test/
+
+# Integration + security (требуют реальный Postgres — поднятый docker-compose `postgres`):
+DATABASE_URL=postgresql://top:...@localhost:5432/top_procurement_test pnpm --filter @top/api test
+```
+Security-тест "Organization A никогда не видит данные Organization B" — `apps/api/test/members-invitations.e2e.spec.ts`, покрывает участников, приглашения и попытку подставить чужой `organizationId`.
+
+**Известные ограничения M1** (сознательно вне скоупа, не забыто):
+- Email-доставка приглашений не реализована (SMTP опционален и не настроен) — ссылка отдаётся администратору в ответе API
+- Password reset (`/auth/forgot-password`) не реализован — не было явного требования, добавляется по запросу
+- ESLint не настроен репозиторий-wide (пробел ещё с M0, не M1)
+
 ## Дальше
 
 1. Ответы на 5 пунктов выше → `.env.production` → первый staging/production деплой с Traefik+TLS
 2. Явные bind-mount пути под `/volume1/docker/top/{postgres,minio,backups}` вместо анонимных volumes
-3. M1 (Auth + RBAC + Multi-tenant) — первый бизнес-модуль поверх этого каркаса, см. [ARCHITECTURE.md §11](ARCHITECTURE.md)
+3. M2+ — Purchase Request / Supplier / RFQ / Quote и далее по core workflow, см. [ARCHITECTURE.md §11](ARCHITECTURE.md)
