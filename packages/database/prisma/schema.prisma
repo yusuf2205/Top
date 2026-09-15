@@ -175,6 +175,8 @@ model Organization {
   warehouses        Warehouse[]
   locations         Location[]
   stockBalances     StockBalance[]
+  stockLots         StockLot[]
+  stockLotPlacements StockLotPlacement[]
 
   @@map("organizations")
 }
@@ -302,6 +304,8 @@ model Product {
   uomConversions UomConversion[]
   specification  MaterialSpecification?
   stockBalances  StockBalance[]
+  stockLots      StockLot[]
+  stockLotPlacements StockLotPlacement[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
@@ -432,6 +436,7 @@ model Supplier {
   documents      SupplierDocument[]
   rfqSuppliers   RFQSupplier[]
   purchaseOrders PurchaseOrder[]
+  stockLots      StockLot[]
 
   @@index([organizationId])
   @@map("suppliers")
@@ -874,8 +879,9 @@ model Warehouse {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  locations     Location[]
-  stockBalances StockBalance[]
+  locations          Location[]
+  stockBalances      StockBalance[]
+  stockLotPlacements StockLotPlacement[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -894,7 +900,8 @@ model Location {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  stockBalances StockBalance[]
+  stockBalances      StockBalance[]
+  stockLotPlacements StockLotPlacement[]
 
   @@unique([warehouseId, code])
   @@index([organizationId, warehouseId])
@@ -935,4 +942,73 @@ model StockBalance {
   @@index([organizationId, warehouseId])
   @@index([organizationId, locationId])
   @@map("stock_balances")
+}
+
+// M2.4-C: two-level lot model (architecture gate, approved). StockLot is
+// physical batch IDENTITY only — no quantity, no warehouseId/locationId.
+// lotNumber is external provenance metadata (supplier/manufacturer lot
+// numbers are not globally unique, and TOP doesn't control them) — it
+// deliberately carries NO uniqueness constraint anywhere. StockLotPlacement
+// is WHERE part of a lot physically sits — a lot can have multiple
+// placements simultaneously (split across locations/warehouses) without
+// losing its identity; a future Transfer only ever touches placements, never
+// StockLot itself. Used for QUANTITY/LOT tracking modes; PIECE mode will use
+// StockPiece instead (a separate, not-yet-implemented slice) since a piece
+// already carries its own placement — StockLotPlacement would be redundant
+// there. CRITICAL: M2.4-C does NOT synchronize StockBalance with either of
+// these tables — there is no StockMovement yet, so StockLot/StockLotPlacement
+// CRUD and StockBalance CRUD are independent administrative records. Before
+// StockMovement exists, the system does not guarantee automatic real-time
+// synchronization between StockLotPlacement and StockBalance.
+model StockLot {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  supplierId     String?
+  supplier       Supplier?    @relation(fields: [supplierId], references: [id])
+  lotNumber      String?
+  receivedAt     DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  placements StockLotPlacement[]
+
+  @@index([organizationId, productId])
+  @@index([organizationId, productId, lotNumber])
+  @@index([organizationId, supplierId])
+  @@map("stock_lots")
+}
+
+// productId is denormalized from StockLot.productId (same single-row
+// tenant/composition-check convenience already used by StockPiece's design
+// in the original M2.4 gate) — always server-derived, never accepted from
+// the client (see stock-lot-placements.service.ts). uomCode is always
+// forced to equal Product.baseUomCode — same hard rule as StockBalance in
+// M2.4-B, never a client-chosen unit, never density/geometry conversion.
+// Uniqueness on (stockLotId, warehouseId, locationId) has the same
+// Postgres NULL-distinctness problem as StockBalance in M2.4-B — resolved
+// with two hand-added partial unique indexes in migration.sql, not a
+// declarative Prisma @@unique.
+model StockLotPlacement {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  stockLotId     String
+  stockLot       StockLot     @relation(fields: [stockLotId], references: [id])
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
+  locationId     String?
+  location       Location?    @relation(fields: [locationId], references: [id])
+  uomCode        UomCode
+  quantity       Decimal      @default(0) @db.Decimal(18, 3)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, stockLotId])
+  @@index([organizationId, productId, warehouseId, locationId])
+  @@map("stock_lot_placements")
 }

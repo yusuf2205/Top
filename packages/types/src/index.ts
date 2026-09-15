@@ -259,6 +259,32 @@ export interface LocationSummary {
 // ── M2.4-B — StockBalance ──
 
 /** availableQty is computed (onHandQty - reservedQty), never its own stored column — see stock-balances.service.ts. */
+// ── M2.4-C — StockLot + StockLotPlacement ──
+
+/** No quantity/warehouseId/locationId — those live on StockLotPlacement. See schema.prisma StockLot doc comment. */
+export interface StockLotSummary {
+  id: string;
+  productId: string;
+  supplierId: string | null;
+  lotNumber: string | null;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** productId is always == the parent StockLot.productId (server-derived, never client-set). */
+export interface StockLotPlacementSummary {
+  id: string;
+  stockLotId: string;
+  productId: string;
+  warehouseId: string;
+  locationId: string | null;
+  uomCode: UomCode;
+  quantity: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StockBalanceSummary {
   id: string;
   productId: string;

@@ -37,6 +37,8 @@ const DIRECT_TENANT_MODELS = new Set([
   "Warehouse",
   "Location",
   "StockBalance",
+  "StockLot",
+  "StockLotPlacement",
 ]);
 
 const READ_OPERATIONS = new Set([
