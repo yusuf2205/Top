@@ -112,6 +112,16 @@ enum ProductTrackingMode {
   PIECE // tracked as individual StockPiece units within a lot (M2.5+; cuttable materials)
 }
 
+// M2.2: how a cross-dimension UomConversion.ratio was obtained. All three are
+// distinct real states — NOT_AVAILABLE is not "no row exists", it's an
+// explicit "this alt UOM is recognized for the product, no safe coefficient
+// yet" marker (substitutes for a separate ProductUom table — see M2.2 Phase A §14).
+enum ConversionSource {
+  CONFIGURED // manually entered by an admin/manager from known specs
+  MEASURED // derived from an actual physical measurement (e.g. a real receipt)
+  NOT_AVAILABLE // recognized as a valid alt UOM for this product, but no coefficient confirmed
+}
+
 // Fixed physical-unit set (M2 PHASE A decision OD-03, confirmed 2026-09-15):
 // deliberately an enum, not a UnitOfMeasure table — see
 // M2-PRODUCT-STOCK-ARCHITECTURE.md §7-10 for why a nullable-tenant
@@ -161,6 +171,7 @@ model Organization {
   invitations      Invitation[]
   productCategories ProductCategory[]
   products          Product[]
+  uomConversions    UomConversion[]
 
   @@map("organizations")
 }
@@ -285,11 +296,50 @@ model Product {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
+  uomConversions UomConversion[]
+
   @@unique([organizationId, sku])
   @@index([organizationId, active])
   @@index([organizationId, categoryId])
   @@index([organizationId, productType])
   @@map("products")
+}
+
+// M2.2: always anchored at the owning Product's baseUomCode — `ratio` is
+// "how many `uomCode` units equal 1 unit of the product's base UOM" (e.g.
+// Product.baseUomCode=KG, uomCode=M, ratio=2.5 means "1 kg = 2.5 m"). Never a
+// free (fromUomCode, toUomCode) pair: storing a single direction per
+// non-base unit avoids a combinatorial pairwise explosion and the risk of
+// the two directions drifting out of sync. The reverse direction is always
+// computed as division, never stored. Same-dimension conversions (kg<->g,
+// m<->cm) never get a row here — they're exact SI math done in code
+// (packages/validation's UOM_BASE_FACTORS), not a "confirmed" coefficient;
+// a service-layer check rejects same-dimension-as-base uomCode values.
+model UomConversion {
+  id             String           @id @default(uuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  productId      String
+  product        Product          @relation(fields: [productId], references: [id])
+  uomCode        UomCode
+  ratio          Decimal?         @db.Decimal(18, 6)
+  source         ConversionSource
+  confirmedById  String?
+  confirmedAt    DateTime?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([productId, uomCode])
+  @@index([organizationId, productId])
+  @@map("uom_conversions")
+  // Manual addition to the generated migration SQL (Prisma has no declarative
+  // CHECK syntax in this version): ALTER TABLE uom_conversions ADD CONSTRAINT
+  // uom_conversions_ratio_source_consistency CHECK
+  //   (("source" = 'NOT_AVAILABLE' AND "ratio" IS NULL) OR
+  //    ("source" != 'NOT_AVAILABLE' AND "ratio" > 0));
+  // — see M2.2 §11. productId != baseUomCode / dimension checks are cross-table
+  // (would need a trigger) and are enforced at the application layer instead.
 }
 
 model Department {

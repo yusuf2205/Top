@@ -23,7 +23,10 @@ export type AuditAction =
   | "PRODUCT_CATEGORY_UPDATED"
   | "PRODUCT_CREATED"
   | "PRODUCT_UPDATED"
-  | "PRODUCT_ARCHIVED";
+  | "PRODUCT_ARCHIVED"
+  | "UOM_CONVERSION_CREATED"
+  | "UOM_CONVERSION_UPDATED"
+  | "UOM_CONVERSION_DELETED";
 
 interface AuditLogParams {
   organizationId: string;

@@ -1,25 +1,15 @@
 import { z } from "zod";
+import { decimalString } from "./decimal";
+import { uomCodeValues } from "./uom";
 
 /**
- * ProductType/ProductTrackingMode/UomCode are duplicated here as zod enums
- * (matching packages/types and the Prisma enums) rather than imported from
+ * ProductType/ProductTrackingMode are duplicated here as zod enums (matching
+ * packages/types and the Prisma enums) rather than imported from
  * @top/database — same browser-bundle rationale as auth.ts/organizations.ts.
+ * uomCodeValues/decimalString are shared with uom.ts/decimal.ts to avoid drift.
  */
 const productTypeValues = ["GOODS", "MATERIAL", "RAW_MATERIAL", "COMPONENT", "CONSUMABLE", "SERVICE"] as const;
 const productTrackingModeValues = ["QUANTITY", "LOT", "PIECE"] as const;
-const uomCodeValues = ["PCS", "KG", "G", "TON", "M", "CM", "MM", "M2", "M3", "L", "ML"] as const;
-
-/**
- * Decimal-safe numeric input: accepted as a string, never `z.number()`.
- * JS `number` is a float internally — for quantities/weights that require
- * exact Decimal precision downstream (see M2-PRODUCT-STOCK-ARCHITECTURE.md
- * §12/§24), the API boundary never round-trips through float at all; the
- * service layer parses this string directly into a Prisma Decimal.
- */
-const decimalString = z
-  .string()
-  .trim()
-  .regex(/^\d{1,15}(\.\d{1,3})?$/, "Must be a non-negative decimal with at most 3 decimal places");
 
 export const createProductCategorySchema = z.object({
   name: z.string().trim().min(1).max(200),

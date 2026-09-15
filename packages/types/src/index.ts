@@ -181,3 +181,30 @@ export interface ProductListResult {
   page: number;
   pageSize: number;
 }
+
+// ── M2.2 — UOM Conversions ──
+
+export const ConversionSource = {
+  CONFIGURED: "CONFIGURED",
+  MEASURED: "MEASURED",
+  NOT_AVAILABLE: "NOT_AVAILABLE",
+} as const;
+export type ConversionSource = (typeof ConversionSource)[keyof typeof ConversionSource];
+
+/** Always anchored at the owning Product's baseUomCode — see schema.prisma UomConversion doc comment. */
+export interface UomConversionSummary {
+  id: string;
+  uomCode: UomCode;
+  ratio: string | null;
+  source: ConversionSource;
+  notes: string | null;
+  confirmedById: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConvertQuantityResult {
+  quantity: string;
+  uomCode: UomCode;
+}

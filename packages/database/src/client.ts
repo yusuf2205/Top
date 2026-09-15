@@ -33,6 +33,7 @@ const DIRECT_TENANT_MODELS = new Set([
   "Invitation",
   "Product",
   "ProductCategory",
+  "UomConversion",
 ]);
 
 const READ_OPERATIONS = new Set([
