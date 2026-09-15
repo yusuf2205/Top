@@ -172,6 +172,8 @@ model Organization {
   productCategories ProductCategory[]
   products          Product[]
   uomConversions    UomConversion[]
+  warehouses        Warehouse[]
+  locations         Location[]
 
   @@map("organizations")
 }
@@ -851,4 +853,45 @@ model AuditLog {
 
   @@index([organizationId, entityType, entityId])
   @@map("audit_logs")
+}
+
+// M2.4-A: Warehouse + Location only (StockBalance/StockLot/StockPiece/
+// StockMovement are a separate, not-yet-approved slice — see
+// M2-PRODUCT-STOCK-ARCHITECTURE.md and the M2.4 architecture gate). Location
+// is a flat list under Warehouse, not a self-referencing tree — the M2.4
+// approval explicitly asked for the simpler shape over the original Phase A
+// sketch ("не создавать сложную WMS hierarchy").
+model Warehouse {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  code           String
+  name           String
+  description    String?
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  locations Location[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@map("warehouses")
+}
+
+model Location {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
+  code           String
+  name           String
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([warehouseId, code])
+  @@index([organizationId, warehouseId])
+  @@map("locations")
 }

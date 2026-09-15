@@ -8,6 +8,7 @@ import { AuthModule } from "./auth/auth.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
 import { MembersModule } from "./members/members.module";
 import { ProductsModule } from "./products/products.module";
+import { WarehousesModule } from "./warehouses/warehouses.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { TenantGuard } from "./common/guards/tenant.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -32,6 +33,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     OrganizationsModule,
     MembersModule,
     ProductsModule,
+    WarehousesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -233,3 +233,25 @@ export interface MaterialSpecificationSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── M2.4-A — Warehouse + Location ──
+
+export interface WarehouseSummary {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LocationSummary {
+  id: string;
+  warehouseId: string;
+  code: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

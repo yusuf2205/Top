@@ -34,6 +34,8 @@ const DIRECT_TENANT_MODELS = new Set([
   "Product",
   "ProductCategory",
   "UomConversion",
+  "Warehouse",
+  "Location",
 ]);
 
 const READ_OPERATIONS = new Set([
