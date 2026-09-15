@@ -18,7 +18,12 @@ export type AuditAction =
   | "INVITATION_ACCEPTED"
   | "INVITATION_REVOKED"
   | "MEMBER_ROLE_CHANGED"
-  | "MEMBER_REMOVED";
+  | "MEMBER_REMOVED"
+  | "PRODUCT_CATEGORY_CREATED"
+  | "PRODUCT_CATEGORY_UPDATED"
+  | "PRODUCT_CREATED"
+  | "PRODUCT_UPDATED"
+  | "PRODUCT_ARCHIVED";
 
 interface AuditLogParams {
   organizationId: string;

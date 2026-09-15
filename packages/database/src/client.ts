@@ -31,6 +31,8 @@ const DIRECT_TENANT_MODELS = new Set([
   "AuditLog",
   "Attachment",
   "Invitation",
+  "Product",
+  "ProductCategory",
 ]);
 
 const READ_OPERATIONS = new Set([

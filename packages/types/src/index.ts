@@ -111,3 +111,73 @@ export interface PendingInvitation {
   expiresAt: string;
   createdAt: string;
 }
+
+// ── M2.1 — Product Master ──
+
+export const ProductType = {
+  GOODS: "GOODS",
+  MATERIAL: "MATERIAL",
+  RAW_MATERIAL: "RAW_MATERIAL",
+  COMPONENT: "COMPONENT",
+  CONSUMABLE: "CONSUMABLE",
+  SERVICE: "SERVICE",
+} as const;
+export type ProductType = (typeof ProductType)[keyof typeof ProductType];
+
+export const ProductTrackingMode = {
+  QUANTITY: "QUANTITY",
+  LOT: "LOT",
+  PIECE: "PIECE",
+} as const;
+export type ProductTrackingMode = (typeof ProductTrackingMode)[keyof typeof ProductTrackingMode];
+
+/** Fixed physical-unit set — see M2-PRODUCT-STOCK-ARCHITECTURE.md OD-03: deliberately an enum, not a table. */
+export const UomCode = {
+  PCS: "PCS",
+  KG: "KG",
+  G: "G",
+  TON: "TON",
+  M: "M",
+  CM: "CM",
+  MM: "MM",
+  M2: "M2",
+  M3: "M3",
+  L: "L",
+  ML: "ML",
+} as const;
+export type UomCode = (typeof UomCode)[keyof typeof UomCode];
+
+export interface ProductCategorySummary {
+  id: string;
+  parentId: string | null;
+  name: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface ProductSummary {
+  id: string;
+  sku: string;
+  name: string;
+  description: string | null;
+  productType: ProductType;
+  categoryId: string | null;
+  brand: string | null;
+  manufacturer: string | null;
+  active: boolean;
+  baseUomCode: UomCode;
+  trackingMode: ProductTrackingMode;
+  stockTracked: boolean;
+  weightNetKg: string | null;
+  weightGrossKg: string | null;
+  barcode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductListResult {
+  items: ProductSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}

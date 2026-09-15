@@ -94,6 +94,44 @@ enum InvitationStatus {
 }
 
 // ────────────────────────────────────────────────────────────
+// M2.1 — PRODUCT MASTER
+// ────────────────────────────────────────────────────────────
+
+enum ProductType {
+  GOODS
+  MATERIAL
+  RAW_MATERIAL
+  COMPONENT
+  CONSUMABLE
+  SERVICE // never stock-tracked — see Product.stockTracked
+}
+
+enum ProductTrackingMode {
+  QUANTITY // plain on-hand quantity, no lot/piece breakdown (e.g. office goods)
+  LOT // tracked as StockLot batches (M2.5+), no individual pieces
+  PIECE // tracked as individual StockPiece units within a lot (M2.5+; cuttable materials)
+}
+
+// Fixed physical-unit set (M2 PHASE A decision OD-03, confirmed 2026-09-15):
+// deliberately an enum, not a UnitOfMeasure table — see
+// M2-PRODUCT-STOCK-ARCHITECTURE.md §7-10 for why a nullable-tenant
+// UnitOfMeasure table would have been a real hole in the existing
+// tenant-isolation DIRECT_TENANT_MODELS mechanism.
+enum UomCode {
+  PCS
+  KG
+  G
+  TON
+  M
+  CM
+  MM
+  M2
+  M3
+  L
+  ML
+}
+
+// ────────────────────────────────────────────────────────────
 // TENANCY / IDENTITY
 // ────────────────────────────────────────────────────────────
 
@@ -121,6 +159,8 @@ model Organization {
   auditLogs        AuditLog[]
   notifications    Notification[]
   invitations      Invitation[]
+  productCategories ProductCategory[]
+  products          Product[]
 
   @@map("organizations")
 }
@@ -194,6 +234,62 @@ model Invitation {
 
   @@index([organizationId, status])
   @@map("invitations")
+}
+
+// ────────────────────────────────────────────────────────────
+// PRODUCT MASTER (M2.1)
+// ────────────────────────────────────────────────────────────
+
+model ProductCategory {
+  id             String           @id @default(uuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  parentId       String?
+  parent         ProductCategory? @relation("ProductCategoryTree", fields: [parentId], references: [id])
+  children       ProductCategory[] @relation("ProductCategoryTree")
+  name           String
+  active         Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+
+  products Product[]
+
+  @@index([organizationId, parentId])
+  @@map("product_categories")
+}
+
+// Identity = organizationId + sku (see M2-PRODUCT-STOCK-ARCHITECTURE.md OD-01):
+// human-readable name never determines uniqueness — "Copper Busbar 50x5" and
+// "Медная шина 50х5" with different SKUs are two distinct Product rows by
+// design; near-duplicate detection by name/spec similarity is an explicit
+// future AI capability (Phase 2/3), not enforced at the DB layer.
+model Product {
+  id             String              @id @default(uuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  sku            String
+  name           String
+  description    String?
+  productType    ProductType
+  categoryId     String?
+  category       ProductCategory?    @relation(fields: [categoryId], references: [id])
+  brand          String?
+  manufacturer   String?
+  active         Boolean             @default(true)
+  baseUomCode    UomCode
+  trackingMode   ProductTrackingMode @default(QUANTITY)
+  stockTracked   Boolean             @default(true)
+  weightNetKg    Decimal?            @db.Decimal(18, 3)
+  weightGrossKg  Decimal?            @db.Decimal(18, 3)
+  barcode        String?
+  createdById    String
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, active])
+  @@index([organizationId, categoryId])
+  @@index([organizationId, productType])
+  @@map("products")
 }
 
 model Department {
