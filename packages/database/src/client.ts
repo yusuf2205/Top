@@ -39,6 +39,7 @@ const DIRECT_TENANT_MODELS = new Set([
   "StockBalance",
   "StockLot",
   "StockLotPlacement",
+  "StockPiece",
 ]);
 
 const READ_OPERATIONS = new Set([

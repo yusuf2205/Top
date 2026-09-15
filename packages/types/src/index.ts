@@ -285,6 +285,34 @@ export interface StockLotPlacementSummary {
   updatedAt: string;
 }
 
+export const StockPieceStatus = {
+  AVAILABLE: "AVAILABLE",
+  RESERVED: "RESERVED",
+  CONSUMED: "CONSUMED",
+  SCRAPPED: "SCRAPPED",
+} as const;
+export type StockPieceStatus = (typeof StockPieceStatus)[keyof typeof StockPieceStatus];
+
+/**
+ * A physical object — quantity/uomCode are the piece's own natural
+ * measurement, never converted/duplicated to Product.baseUomCode here.
+ * parentPieceId is always null for anything M2.4-D itself can create (the
+ * column exists for a future split/issue operation to write into).
+ */
+export interface StockPieceSummary {
+  id: string;
+  productId: string;
+  lotId: string;
+  warehouseId: string;
+  locationId: string | null;
+  parentPieceId: string | null;
+  quantity: string;
+  uomCode: UomCode;
+  status: StockPieceStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StockBalanceSummary {
   id: string;
   productId: string;

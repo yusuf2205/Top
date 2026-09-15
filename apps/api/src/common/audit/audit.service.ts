@@ -38,7 +38,8 @@ export type AuditAction =
   | "STOCK_LOT_CREATED"
   | "STOCK_LOT_UPDATED"
   | "STOCK_LOT_PLACEMENT_CREATED"
-  | "STOCK_LOT_PLACEMENT_UPDATED";
+  | "STOCK_LOT_PLACEMENT_UPDATED"
+  | "STOCK_PIECE_CREATED";
 
 interface AuditLogParams {
   organizationId: string;

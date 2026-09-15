@@ -7,3 +7,4 @@ export * from "./material-specifications";
 export * from "./warehouses";
 export * from "./stock-balances";
 export * from "./stock-lots";
+export * from "./stock-pieces";

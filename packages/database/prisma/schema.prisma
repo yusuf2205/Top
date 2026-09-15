@@ -122,6 +122,18 @@ enum ConversionSource {
   NOT_AVAILABLE // recognized as a valid alt UOM for this product, but no coefficient confirmed
 }
 
+// M2.4-D: AVAILABLE/RESERVED/CONSUMED/SCRAPPED, pre-approved by the original
+// M2.4 architecture gate. No transitions implemented in M2.4-D itself — every
+// piece created by this slice's CRUD is AVAILABLE (the schema default); the
+// other three states are only reachable via a future split/issue/scrap
+// operation (StockMovement-era), not built here.
+enum StockPieceStatus {
+  AVAILABLE
+  RESERVED
+  CONSUMED
+  SCRAPPED
+}
+
 // Fixed physical-unit set (M2 PHASE A decision OD-03, confirmed 2026-09-15):
 // deliberately an enum, not a UnitOfMeasure table — see
 // M2-PRODUCT-STOCK-ARCHITECTURE.md §7-10 for why a nullable-tenant
@@ -177,6 +189,7 @@ model Organization {
   stockBalances     StockBalance[]
   stockLots         StockLot[]
   stockLotPlacements StockLotPlacement[]
+  stockPieces        StockPiece[]
 
   @@map("organizations")
 }
@@ -306,6 +319,7 @@ model Product {
   stockBalances  StockBalance[]
   stockLots      StockLot[]
   stockLotPlacements StockLotPlacement[]
+  stockPieces    StockPiece[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
@@ -882,6 +896,7 @@ model Warehouse {
   locations          Location[]
   stockBalances      StockBalance[]
   stockLotPlacements StockLotPlacement[]
+  stockPieces        StockPiece[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -902,6 +917,7 @@ model Location {
 
   stockBalances      StockBalance[]
   stockLotPlacements StockLotPlacement[]
+  stockPieces        StockPiece[]
 
   @@unique([warehouseId, code])
   @@index([organizationId, warehouseId])
@@ -974,6 +990,7 @@ model StockLot {
   updatedAt      DateTime     @updatedAt
 
   placements StockLotPlacement[]
+  pieces     StockPiece[]
 
   @@index([organizationId, productId])
   @@index([organizationId, productId, lotNumber])
@@ -1011,4 +1028,49 @@ model StockLotPlacement {
   @@index([organizationId, stockLotId])
   @@index([organizationId, productId, warehouseId, locationId])
   @@map("stock_lot_placements")
+}
+
+// M2.4-D architecture gate (final, approved with changes): a physical
+// object — one piece, one row, never mutated once created by THIS slice.
+// productId is server-derived from StockLot.productId (same pattern as
+// StockLotPlacement) — never a client-settable field. quantity/uomCode are
+// the piece's own natural physical measurement, deliberately NOT converted
+// to/duplicated in Product.baseUomCode terms here (no density/geometry/
+// hardcoded formula, ever — only a future confirmed product-specific
+// UomConversion may do that translation, and only when actually needed).
+// A missing conversion does NOT block piece creation.
+//
+// parentPieceId exists as a nullable column so a FUTURE atomic split/issue
+// operation has somewhere to write lineage, but M2.4-D's own create
+// endpoint never accepts or sets it — creating a child independently of
+// that atomic operation would let a remnant exist while its parent stays
+// AVAILABLE, silently duplicating physical quantity. Every piece this slice
+// creates is a standalone/original piece. No unique constraint: distinct
+// pieces may legitimately coexist at the exact same (product, warehouse,
+// location) simultaneously — this is not a StockBalance-style aggregate key.
+model StockPiece {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  productId      String
+  product        Product           @relation(fields: [productId], references: [id])
+  lotId          String
+  lot            StockLot          @relation(fields: [lotId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse         @relation(fields: [warehouseId], references: [id])
+  locationId     String?
+  location       Location?         @relation(fields: [locationId], references: [id])
+  parentPieceId  String?
+  parentPiece    StockPiece?       @relation("PieceLineage", fields: [parentPieceId], references: [id])
+  children       StockPiece[]      @relation("PieceLineage")
+  quantity       Decimal           @db.Decimal(18, 3)
+  uomCode        UomCode
+  status         StockPieceStatus  @default(AVAILABLE)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([organizationId, lotId])
+  @@index([organizationId, productId, warehouseId, locationId, status])
+  @@index([organizationId, parentPieceId])
+  @@map("stock_pieces")
 }
