@@ -26,7 +26,9 @@ export type AuditAction =
   | "PRODUCT_ARCHIVED"
   | "UOM_CONVERSION_CREATED"
   | "UOM_CONVERSION_UPDATED"
-  | "UOM_CONVERSION_DELETED";
+  | "UOM_CONVERSION_DELETED"
+  | "MATERIAL_SPECIFICATION_SET"
+  | "MATERIAL_SPECIFICATION_DELETED";
 
 interface AuditLogParams {
   organizationId: string;

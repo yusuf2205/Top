@@ -297,12 +297,45 @@ model Product {
   updatedAt      DateTime            @updatedAt
 
   uomConversions UomConversion[]
+  specification  MaterialSpecification?
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
   @@index([organizationId, categoryId])
   @@index([organizationId, productType])
   @@map("products")
+}
+
+// M2.3: hybrid typed + JSONB, 1:1 child of Product (no own organizationId —
+// same child pattern as PurchaseRequestItem/AIExtraction, reached only via
+// an already tenant-checked Product; see M2-PRODUCT-STOCK-ARCHITECTURE.md
+// §18). Dimension fields are fixed-unit-by-name (always mm/mm2/kg-per-m3),
+// not a {value, uomCode} pair — see material-specifications.ts doc comment
+// for why. `attributes` is the escape hatch for anything not common enough
+// to be a typed column; displayValue is a server-computed denormalized
+// human-readable summary, never client-writable.
+model MaterialSpecification {
+  id              String   @id @default(uuid())
+  productId       String   @unique
+  product         Product  @relation(fields: [productId], references: [id])
+  material        String?
+  grade           String?
+  standard        String?
+  countryOfOrigin String?
+  widthMm         Decimal? @db.Decimal(18, 3)
+  thicknessMm     Decimal? @db.Decimal(18, 3)
+  lengthMm        Decimal? @db.Decimal(18, 3)
+  heightMm        Decimal? @db.Decimal(18, 3)
+  outerDiameterMm Decimal? @db.Decimal(18, 3)
+  innerDiameterMm Decimal? @db.Decimal(18, 3)
+  crossSectionMm2 Decimal? @db.Decimal(18, 3)
+  densityKgM3     Decimal? @db.Decimal(18, 3)
+  attributes      Json?
+  displayValue    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("material_specifications")
 }
 
 // M2.2: always anchored at the owning Product's baseUomCode — `ratio` is

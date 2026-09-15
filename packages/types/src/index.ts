@@ -208,3 +208,28 @@ export interface ConvertQuantityResult {
   quantity: string;
   uomCode: UomCode;
 }
+
+// ── M2.3 — Material Specification ──
+
+/** Dynamic escape-hatch attribute value — see @top/validation's material-specifications.ts. */
+export type MaterialAttributeValue = string | number | boolean | { value: string; uomCode: UomCode };
+
+export interface MaterialSpecificationSummary {
+  productId: string;
+  material: string | null;
+  grade: string | null;
+  standard: string | null;
+  countryOfOrigin: string | null;
+  widthMm: string | null;
+  thicknessMm: string | null;
+  lengthMm: string | null;
+  heightMm: string | null;
+  outerDiameterMm: string | null;
+  innerDiameterMm: string | null;
+  crossSectionMm2: string | null;
+  densityKgM3: string | null;
+  attributes: Record<string, MaterialAttributeValue> | null;
+  displayValue: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
