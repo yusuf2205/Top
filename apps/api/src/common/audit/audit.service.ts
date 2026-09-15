@@ -32,7 +32,9 @@ export type AuditAction =
   | "WAREHOUSE_CREATED"
   | "WAREHOUSE_UPDATED"
   | "LOCATION_CREATED"
-  | "LOCATION_UPDATED";
+  | "LOCATION_UPDATED"
+  | "STOCK_BALANCE_CREATED"
+  | "STOCK_BALANCE_UPDATED";
 
 interface AuditLogParams {
   organizationId: string;

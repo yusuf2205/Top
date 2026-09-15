@@ -174,6 +174,7 @@ model Organization {
   uomConversions    UomConversion[]
   warehouses        Warehouse[]
   locations         Location[]
+  stockBalances     StockBalance[]
 
   @@map("organizations")
 }
@@ -300,6 +301,7 @@ model Product {
 
   uomConversions UomConversion[]
   specification  MaterialSpecification?
+  stockBalances  StockBalance[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
@@ -855,7 +857,7 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// M2.4-A: Warehouse + Location only (StockBalance/StockLot/StockPiece/
+// M2.4-A/B: Warehouse + Location + StockBalance (StockLot/StockPiece/
 // StockMovement are a separate, not-yet-approved slice — see
 // M2-PRODUCT-STOCK-ARCHITECTURE.md and the M2.4 architecture gate). Location
 // is a flat list under Warehouse, not a self-referencing tree — the M2.4
@@ -872,7 +874,8 @@ model Warehouse {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  locations Location[]
+  locations     Location[]
+  stockBalances StockBalance[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -891,7 +894,45 @@ model Location {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  stockBalances StockBalance[]
+
   @@unique([warehouseId, code])
   @@index([organizationId, warehouseId])
   @@map("locations")
+}
+
+// M2.4-B: current aggregated stock state only — no movement/lot/piece logic
+// yet (StockLot/StockPiece/StockMovement are separate, not-yet-approved
+// slices; their natural keys and the Balance<->Lot<->Piece invariant are
+// explicitly open design questions, not decided here). uomCode is always
+// forced server-side to equal Product.baseUomCode — never independently
+// client-set (see stock-balances.service.ts). Uniqueness on
+// (productId, warehouseId, locationId) can't be expressed as a single
+// Prisma @@unique because Postgres treats NULL as distinct from itself, so
+// a plain composite unique would allow duplicate warehouse-level rows when
+// locationId is NULL — two partial unique indexes are added by hand in the
+// migration.sql instead (same pattern as UomConversion's CHECK constraint
+// in M2.2). onHandQty/reservedQty >= 0 and reservedQty <= onHandQty are
+// also hand-added CHECK constraints — Prisma has no declarative syntax for
+// either partial indexes or CHECK constraints as of this schema version.
+model StockBalance {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
+  locationId     String?
+  location       Location?    @relation(fields: [locationId], references: [id])
+  uomCode        UomCode
+  onHandQty      Decimal      @default(0) @db.Decimal(18, 3)
+  reservedQty    Decimal      @default(0) @db.Decimal(18, 3)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, productId])
+  @@index([organizationId, warehouseId])
+  @@index([organizationId, locationId])
+  @@map("stock_balances")
 }

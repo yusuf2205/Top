@@ -255,3 +255,19 @@ export interface LocationSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── M2.4-B — StockBalance ──
+
+/** availableQty is computed (onHandQty - reservedQty), never its own stored column — see stock-balances.service.ts. */
+export interface StockBalanceSummary {
+  id: string;
+  productId: string;
+  warehouseId: string;
+  locationId: string | null;
+  uomCode: UomCode;
+  onHandQty: string;
+  reservedQty: string;
+  availableQty: string;
+  createdAt: string;
+  updatedAt: string;
+}

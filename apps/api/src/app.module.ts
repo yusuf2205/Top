@@ -9,6 +9,7 @@ import { OrganizationsModule } from "./organizations/organizations.module";
 import { MembersModule } from "./members/members.module";
 import { ProductsModule } from "./products/products.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
+import { StockModule } from "./stock/stock.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { TenantGuard } from "./common/guards/tenant.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -34,6 +35,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     MembersModule,
     ProductsModule,
     WarehousesModule,
+    StockModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

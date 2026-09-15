@@ -36,6 +36,7 @@ const DIRECT_TENANT_MODELS = new Set([
   "UomConversion",
   "Warehouse",
   "Location",
+  "StockBalance",
 ]);
 
 const READ_OPERATIONS = new Set([

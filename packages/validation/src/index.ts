@@ -5,3 +5,4 @@ export * from "./uom";
 export * from "./products";
 export * from "./material-specifications";
 export * from "./warehouses";
+export * from "./stock-balances";
