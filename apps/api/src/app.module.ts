@@ -4,6 +4,7 @@ import { HealthModule } from "./health/health.module";
 import { DatabaseModule } from "./database/database.module";
 import { TokenModule } from "./common/token/token.module";
 import { AuditModule } from "./common/audit/audit.module";
+import { EntitySequenceModule } from "./common/entity-sequence/entity-sequence.module";
 import { AuthModule } from "./auth/auth.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
 import { MembersModule } from "./members/members.module";
@@ -30,6 +31,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     DatabaseModule,
     TokenModule,
     AuditModule,
+    EntitySequenceModule,
     HealthModule,
     AuthModule,
     OrganizationsModule,

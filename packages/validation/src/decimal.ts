@@ -25,3 +25,15 @@ export const positiveDecimalString = z
   .trim()
   .regex(/^\d{1,12}(\.\d{1,6})?$/, "Must be a positive decimal with at most 6 decimal places")
   .refine((v) => Number(v) > 0, "Must be greater than zero");
+
+/**
+ * Non-negative, up to 2 decimal places — matches the project's Decimal(18,2)
+ * money/amount convention (see PurchaseRequest.estimatedBudget, and
+ * Quote.deliveryCost/PurchaseOrder.totalAmount later). Kept here rather than
+ * as a one-off local regex, same reasoning as decimalString/positiveDecimalString:
+ * one canonical validator per DB precision-scale convention.
+ */
+export const moneyString = z
+  .string()
+  .trim()
+  .regex(/^\d{1,16}(\.\d{1,2})?$/, "Must be a non-negative amount with at most 2 decimal places");

@@ -9,3 +9,4 @@ export * from "./stock-balances";
 export * from "./stock-lots";
 export * from "./stock-pieces";
 export * from "./stock-movements";
+export * from "./purchase-requests";
