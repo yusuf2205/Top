@@ -13,8 +13,23 @@ export const ENTITY_SEQUENCE_TYPE = {
   PURCHASE_REQUEST: "PURCHASE_REQUEST",
   RFQ: "RFQ",
   PURCHASE_ORDER: "PURCHASE_ORDER",
+  SUPPLIER: "SUPPLIER",
 } as const;
 export type EntitySequenceType = (typeof ENTITY_SEQUENCE_TYPE)[keyof typeof ENTITY_SEQUENCE_TYPE];
+
+/**
+ * M3.2 (Architecture Gate Revision 1, Decision R4): SUPPLIER is the one
+ * sequenceType that must NEVER reset by calendar year — a supplier code is a
+ * permanent master-data identity, not a per-year document number like
+ * PR/RFQ/PO. `EntitySequence.year` is still `Int NOT NULL` with a `year > 0`
+ * CHECK (deliberately unchanged — a nullable year would let two concurrent
+ * "first supplier code ever" requests both win the create() race, since
+ * Postgres never treats NULL = NULL, breaking nextValue()'s uniqueness
+ * guarantee). This fixed, clearly-synthetic sentinel is used as the `year`
+ * argument on every SUPPLIER call instead: never a real calendar year, never
+ * shown to a user, defined in exactly this one place.
+ */
+export const SUPPLIER_SEQUENCE_YEAR = 9999;
 
 /**
  * M3.1 Phase C (Architecture Gate Revision 1, Decisions 6/13). The generic

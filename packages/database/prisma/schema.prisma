@@ -484,22 +484,57 @@ model Category {
 // SUPPLIERS
 // ────────────────────────────────────────────────────────────
 
+// M3.2 (Architecture Gate Revision 1, locked): sourcing-eligibility lifecycle
+// only — NEVER tied to StockLot/warehouse provenance (a supplier that later
+// becomes BLOCKED does not invalidate goods already received against it).
+// ACTIVE = selectable for new sourcing; INACTIVE/BLOCKED = visible
+// internally, not selectable; ARCHIVED = hidden from the default list,
+// visible only when explicitly filtered, not selectable. All four keep
+// every historical relation fully readable. Fully reversible — no status is
+// a one-way transition (see SuppliersService.updateStatus).
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  ARCHIVED
+}
+
 model Supplier {
-  id             String       @id @default(uuid())
+  id             String         @id @default(uuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  supplierCode   String
   companyName    String
   legalName      String?
   tin            String?
+  // Derived from `tin` (trim/strip-whitespace-and-hyphens/uppercase, empty
+  // result stored as NULL) — used ONLY for the uniqueness constraint below
+  // and search; `tin` remains the business field shown in audit/UI.
+  normalizedTin  String?
+  // LEGACY — pre-M3.2 free-text field, kept only so no historical value is
+  // ever silently discarded by the M3.2 migration (Revision 1 §9/§10). Not
+  // part of the M3.2 API/DTO surface. Superseded by countryCode below.
   country        String?
+  countryCode    String?        @db.Char(2)
   address        String?
+  phone          String?
+  email          String?
+  website        String?
+  // LEGACY — reserved for a future accounting/contracts/Didox phase
+  // (Revision 1 §13). Not part of the M3.2 API/DTO surface: never read or
+  // written by SuppliersService/SuppliersController.
   bankName       String?
   mfo            String?
   bankAccount    String?
-  rating         Decimal?     @db.Decimal(5, 2)
-  active         Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  rating         Decimal?       @db.Decimal(5, 2)
+  status         SupplierStatus @default(ACTIVE)
+  notes          String?
+  // Same hand-added-partial-index idempotency pattern as PurchaseRequest/
+  // StockMovement (Revision 1 §19/§27) — create-only, never used by update.
+  idempotencyKey String?
+  payloadHash    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   categories     SupplierCategory[]
   contacts       SupplierContact[]
@@ -508,7 +543,13 @@ model Supplier {
   purchaseOrders PurchaseOrder[]
   stockLots      StockLot[]
 
-  @@index([organizationId])
+  @@unique([organizationId, supplierCode])
+  // Plain composite @@unique, not a partial index: Postgres never considers
+  // two NULLs equal even within a multi-column unique index, so any number
+  // of NULL-normalizedTin suppliers per org is already allowed by this alone
+  // (Revision 1 §6/§7 — confirmed correct, no manual SQL needed here).
+  @@unique([organizationId, normalizedTin])
+  @@index([organizationId, status])
   @@map("suppliers")
 }
 
@@ -527,10 +568,18 @@ model SupplierContact {
   supplierId String
   supplier   Supplier @relation(fields: [supplierId], references: [id])
   fullName   String
+  position   String?
   phone      String?
   email      String?
   telegram   String?
+  // At most one (supplierId) row may have isPrimary=true AND active=true —
+  // hand-added partial unique index (Revision 1 §15/§19), same established
+  // pattern as uom_conversions' manual CHECK constraint: Prisma in this
+  // project's version has no declarative filtered-index attribute.
   isPrimary  Boolean  @default(false)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("supplier_contacts")
 }

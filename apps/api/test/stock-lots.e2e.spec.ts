@@ -104,7 +104,12 @@ describe("M2.4-C StockLot + StockLotPlacement", () => {
   });
 
   async function createSupplierDirect(organizationId: string): Promise<{ id: string }> {
-    const supplier = await systemDb.supplier.create({ data: { organizationId, companyName: "Test Supplier" } });
+    // M3.2: supplierCode is now required — this helper bypasses
+    // SuppliersService entirely (no REST API existed for Supplier when this
+    // file was written), so it supplies a unique code by hand rather than
+    // pulling in EntitySequenceService for a StockLot-focused test file.
+    const supplierCode = `SUP-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const supplier = await systemDb.supplier.create({ data: { organizationId, companyName: "Test Supplier", supplierCode } });
     return { id: supplier.id };
   }
 

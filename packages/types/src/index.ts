@@ -527,5 +527,81 @@ export interface PurchaseRequestListResult {
   pageSize: number;
 }
 
+// ── M3.2 — Supplier Master (Architecture Gate Revision 1, locked) ──
+
+export const SupplierStatus = {
+  ACTIVE: "ACTIVE",
+  INACTIVE: "INACTIVE",
+  BLOCKED: "BLOCKED",
+  ARCHIVED: "ARCHIVED",
+} as const;
+export type SupplierStatus = (typeof SupplierStatus)[keyof typeof SupplierStatus];
+
+export interface CategorySummary {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface SupplierContactView {
+  id: string;
+  supplierId: string;
+  fullName: string;
+  position: string | null;
+  phone: string | null;
+  email: string | null;
+  telegram: string | null;
+  isPrimary: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierCapabilityView {
+  categoryId: string;
+  categoryName: string;
+}
+
+/** LIST row — lightweight, no contacts/categories[] (same discipline as PurchaseRequestListItem). */
+export interface SupplierSummary {
+  id: string;
+  supplierCode: string;
+  companyName: string;
+  legalName: string | null;
+  tin: string | null;
+  countryCode: string | null;
+  status: SupplierStatus;
+  rating: string | null;
+  createdAt: string;
+}
+
+/** Bounded detail: fields + contacts + capabilities. Never bank/legacy-country fields (Revision 1 R11) — those are DB-only, not part of any DTO. */
+export interface SupplierDetail {
+  id: string;
+  supplierCode: string;
+  companyName: string;
+  legalName: string | null;
+  tin: string | null;
+  countryCode: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  rating: string | null;
+  status: SupplierStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contacts: SupplierContactView[];
+  categories: SupplierCapabilityView[];
+}
+
+export interface SupplierListResult {
+  items: SupplierSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 // ── Realtime Foundation — domain event contract ──
 export * from "./events";
