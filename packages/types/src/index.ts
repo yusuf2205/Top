@@ -32,6 +32,15 @@ export const PurchaseRequestStatus = {
 } as const;
 export type PurchaseRequestStatus = (typeof PurchaseRequestStatus)[keyof typeof PurchaseRequestStatus];
 
+// M3.1 Phase B: replaces the legacy free-string `priority` field.
+export const PurchaseRequestPriority = {
+  LOW: "LOW",
+  NORMAL: "NORMAL",
+  HIGH: "HIGH",
+  URGENT: "URGENT",
+} as const;
+export type PurchaseRequestPriority = (typeof PurchaseRequestPriority)[keyof typeof PurchaseRequestPriority];
+
 export const RfqStatus = {
   DRAFT: "DRAFT",
   SENT: "SENT",
@@ -325,3 +334,107 @@ export interface StockBalanceSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── M2.5 — StockMovement ──
+
+/** Canonical movement types — see schema.prisma StockMovementType. No RETURN/RECLASSIFICATION/REVERSAL/RESERVATION/RELEASE: a correction is a new movement referencing the original; reservation is a separate future slice. */
+export const StockMovementType = {
+  RECEIPT: "RECEIPT",
+  ISSUE: "ISSUE",
+  TRANSFER: "TRANSFER",
+  ADJUSTMENT: "ADJUSTMENT",
+  SCRAP: "SCRAP",
+  SPLIT: "SPLIT",
+} as const;
+export type StockMovementType = (typeof StockMovementType)[keyof typeof StockMovementType];
+
+/** Polymorphic reference pair on StockMovement — no FK, same precedent as Attachment.ownerType/ownerId. STOCK_MOVEMENT is for correction/reversal linkage. */
+export const StockMovementReferenceType = {
+  PURCHASE_ORDER: "PURCHASE_ORDER",
+  MANUAL: "MANUAL",
+  STOCK_MOVEMENT: "STOCK_MOVEMENT",
+} as const;
+export type StockMovementReferenceType = (typeof StockMovementReferenceType)[keyof typeof StockMovementReferenceType];
+
+/**
+ * The ONLY accounting discriminator on a StockMovementLine — server-derived,
+ * never client-supplied. sourcePieceId/destPieceId/sourceLotId/destLotId are
+ * pure lineage/traceability references and NEVER determine this value or any
+ * Balance/Placement effect (see StockMovementLine's own doc comment in
+ * schema.prisma for the full INBOUND/OUTBOUND/TRANSFER/NONE semantics).
+ */
+export const StockMovementLineEffect = {
+  INBOUND: "INBOUND",
+  OUTBOUND: "OUTBOUND",
+  TRANSFER: "TRANSFER",
+  NONE: "NONE",
+} as const;
+export type StockMovementLineEffect = (typeof StockMovementLineEffect)[keyof typeof StockMovementLineEffect];
+
+/**
+ * Header only — no productId/quantity/warehouse/location/lot/piece here (a
+ * single movement may cover multiple products/lines); no status/completedAt/
+ * updatedAt (every movement is atomic-by-construction, no pending state).
+ */
+export interface StockMovementSummary {
+  id: string;
+  type: StockMovementType;
+  referenceType: StockMovementReferenceType | null;
+  referenceId: string | null;
+  idempotencyKey: string | null;
+  actorUserId: string;
+  reason: string | null;
+  createdAt: string;
+  lines: StockMovementLineSummary[];
+}
+
+/**
+ * sourcePieceId/destPieceId/sourceLotId/destLotId are lineage only — never
+ * read as an accounting signal; `effect` is the sole accounting
+ * discriminator. baseQuantity is null exactly when effect === "NONE"
+ * (SPLIT) — a SPLIT never computes or stores a base-UOM quantity, and
+ * UomConversionsService.convert() is never called for it.
+ */
+export interface StockMovementLineSummary {
+  id: string;
+  movementId: string;
+  productId: string;
+  effect: StockMovementLineEffect;
+  sourcePieceId: string | null;
+  destPieceId: string | null;
+  sourceLotId: string | null;
+  destLotId: string | null;
+  sourceWarehouseId: string | null;
+  sourceLocationId: string | null;
+  destWarehouseId: string | null;
+  destLocationId: string | null;
+  uomCode: UomCode;
+  quantity: string;
+  baseQuantity: string | null;
+}
+
+/**
+ * LIST row (Phase G) — deliberately lightweight: no lines[], just lineCount,
+ * so a paginated list of movements never fans out into loading every line of
+ * every movement. Use GET /api/v1/stock-movements/:id (StockMovementSummary)
+ * for full line detail on one movement.
+ */
+export interface StockMovementListItem {
+  id: string;
+  type: StockMovementType;
+  referenceType: StockMovementReferenceType | null;
+  referenceId: string | null;
+  actorUserId: string;
+  createdAt: string;
+  lineCount: number;
+}
+
+export interface StockMovementListResult {
+  items: StockMovementListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// ── Realtime Foundation — domain event contract ──
+export * from "./events";

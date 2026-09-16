@@ -6,6 +6,7 @@ import type { CreateProductInput, ListProductsQuery, UpdateProductInput } from "
 import type { ProductListResult, ProductSummary } from "@top/types";
 import { TENANT_PRISMA } from "../database/database.module";
 import { AuditService } from "../common/audit/audit.service";
+import { DomainEventsService } from "../realtime/domain-events.service";
 import { ProductCategoriesService } from "./product-categories.service";
 
 type TenantDb = ReturnType<typeof createTenantSafePrismaClient>;
@@ -18,6 +19,7 @@ export class ProductsService {
   constructor(
     @Inject(TENANT_PRISMA) private readonly db: TenantDb,
     private readonly audit: AuditService,
+    private readonly events: DomainEventsService,
     private readonly categories: ProductCategoriesService
   ) {}
 
@@ -93,6 +95,18 @@ export class ProductsService {
       entityType: "Product",
       entityId: product.id,
       newValue: { sku: product.sku, name: product.name, productType: product.productType },
+    });
+
+    // Realtime Foundation — the second, non-stock example event proving the
+    // commit -> event pattern generalizes. `create()` has no surrounding
+    // `$transaction`; the `product.create()` call above already committed
+    // (Postgres auto-commits a single statement), so this is already
+    // strictly post-commit, same as StockMovementsService's own call site.
+    this.events.publishProductCreated({
+      organizationId,
+      entityId: product.id,
+      actorUserId: actingUserId,
+      payload: { sku: product.sku, productType: product.productType as ProductSummary["productType"] },
     });
 
     return toSummary(product);

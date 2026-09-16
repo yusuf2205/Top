@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { createTenantSafePrismaClient } from "@top/database";
+import type { TenantTransactionClient } from "../database/database.module";
 import type { CreateStockLotInput, ListStockLotsQuery, UpdateStockLotInput } from "@top/validation";
 import type { StockLotSummary } from "@top/types";
 import { TENANT_PRISMA } from "../database/database.module";
@@ -109,6 +110,13 @@ export class StockLotsService {
   /** Public — also used by StockLotPlacementsService as the tenant-ownership check on :stockLotId. */
   async requireLot(organizationId: string, id: string): Promise<StockLotRow> {
     const lot = await this.db.stockLot.findFirst({ where: { id, organizationId } });
+    if (!lot) throw new NotFoundException("Stock lot not found");
+    return lot;
+  }
+
+  /** M2.5 (Phase F) — transaction-participating counterpart to requireLot, for StockMovementsService. */
+  async requireLotTx(tx: TenantTransactionClient, organizationId: string, id: string): Promise<StockLotRow> {
+    const lot = await tx.stockLot.findFirst({ where: { id, organizationId } });
     if (!lot) throw new NotFoundException("Stock lot not found");
     return lot;
   }

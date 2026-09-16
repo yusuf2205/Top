@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { RealtimeModule } from "../realtime/realtime.module";
 import { MaterialSpecificationsController } from "./material-specifications.controller";
 import { MaterialSpecificationsService } from "./material-specifications.service";
 import { ProductCategoriesController } from "./product-categories.controller";
@@ -10,6 +11,7 @@ import { UomConversionsController } from "./uom-conversions.controller";
 import { UomConversionsService } from "./uom-conversions.service";
 
 @Module({
+  imports: [RealtimeModule],
   controllers: [
     ProductsController,
     ProductCategoriesController,
@@ -18,5 +20,6 @@ import { UomConversionsService } from "./uom-conversions.service";
     MaterialSpecificationsController,
   ],
   providers: [ProductsService, ProductCategoriesService, UomConversionsService, MaterialSpecificationsService],
+  exports: [UomConversionsService],
 })
 export class ProductsModule {}

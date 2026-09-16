@@ -36,6 +36,18 @@ enum PurchaseRequestStatus {
   CANCELLED
 }
 
+// M3.1 Phase B: replaces the legacy `priority String @default("normal")`
+// (Architecture Gate Revision 1, Decision 2/12/21) — values match the
+// original inline comment's intent (low|normal|high|urgent), just as a real
+// enum instead of a free string, consistent with every other categorical
+// field added since M2.
+enum PurchaseRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 enum RfqStatus {
   DRAFT
   SENT
@@ -153,6 +165,43 @@ enum UomCode {
   ML
 }
 
+// M2.5 (Architecture Gate Revision 2, approved): canonical movement types
+// only. RETURN/RECLASSIFICATION/REVERSAL/RESERVATION/RELEASE deliberately
+// excluded — a correction/reversal is represented by a new movement
+// referencing the original (StockMovement.referenceType = STOCK_MOVEMENT),
+// not a dedicated type; reservation is a separate future slice.
+enum StockMovementType {
+  RECEIPT
+  ISSUE
+  TRANSFER
+  ADJUSTMENT
+  SCRAP
+  SPLIT
+}
+
+// Polymorphic reference pair on StockMovement (referenceType + referenceId,
+// no FK — same precedent as Attachment.ownerType/ownerId). STOCK_MOVEMENT is
+// for correction/reversal linkage (a new movement referencing the one it
+// corrects). No speculative reference kinds added beyond what M2.5 needs.
+enum StockMovementReferenceType {
+  PURCHASE_ORDER
+  MANUAL
+  STOCK_MOVEMENT
+}
+
+// M2.5 (Revision 1 Issue A+B fix, Revision 2 locked): the ONLY accounting
+// discriminator on StockMovementLine — server-derived from
+// StockMovement.type (+ sign, for ADJUSTMENT only), never client-supplied.
+// sourcePieceId/destPieceId/sourceLotId/destLotId on StockMovementLine are
+// pure lineage/traceability references and NEVER determine this value or
+// any Balance/Placement mutation — see StockMovementLine's own doc comment.
+enum StockMovementLineEffect {
+  INBOUND
+  OUTBOUND
+  TRANSFER
+  NONE
+}
+
 // ────────────────────────────────────────────────────────────
 // TENANCY / IDENTITY
 // ────────────────────────────────────────────────────────────
@@ -190,6 +239,9 @@ model Organization {
   stockLots         StockLot[]
   stockLotPlacements StockLotPlacement[]
   stockPieces        StockPiece[]
+  stockMovements     StockMovement[]
+  stockMovementLines StockMovementLine[]
+  entitySequences    EntitySequence[]
 
   @@map("organizations")
 }
@@ -209,7 +261,9 @@ model User {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  purchaseRequests PurchaseRequest[] @relation("Requester")
+  purchaseRequests          PurchaseRequest[] @relation("Requester")
+  purchaseRequestsAssigned  PurchaseRequest[] @relation("AssignedBuyer")
+  purchaseRequestsCancelled PurchaseRequest[] @relation("CancelledBy")
   refreshTokens     RefreshToken[]
   invitationsSent   Invitation[]     @relation("InvitedBy")
 
@@ -320,6 +374,8 @@ model Product {
   stockLots      StockLot[]
   stockLotPlacements StockLotPlacement[]
   stockPieces    StockPiece[]
+  stockMovementLines StockMovementLine[]
+  purchaseRequestItems PurchaseRequestItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
@@ -492,30 +548,77 @@ model SupplierDocument {
 }
 
 // ────────────────────────────────────────────────────────────
-// PURCHASE REQUEST
+// M3.1 Phase B: org/year-scoped counter, generic across future document
+// types (PURCHASE_REQUEST today; RFQ/PURCHASE_ORDER later reuse the same
+// table — Architecture Gate Revision 1, Decision 13). `sequenceType` is a
+// plain string, same convention as AuditAction, not a growing enum (Decision
+// 10). Generation logic (atomic increment-or-create, retry-on-P2002) is a
+// FUTURE service — this phase is infrastructure only, no SequenceService.
+// ────────────────────────────────────────────────────────────
+
+model EntitySequence {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sequenceType   String
+  year           Int
+  lastValue      Int          @default(0)
+
+  @@unique([organizationId, sequenceType, year])
+  @@map("entity_sequences")
+}
+
+// ────────────────────────────────────────────────────────────
+// PURCHASE REQUEST (M3.1 Phase B additions — Architecture Gate Revision 1)
 // ────────────────────────────────────────────────────────────
 
 model PurchaseRequest {
-  id              String                @id @default(uuid())
+  id              String                  @id @default(uuid())
   organizationId  String
-  organization    Organization          @relation(fields: [organizationId], references: [id])
+  organization    Organization            @relation(fields: [organizationId], references: [id])
   requestNumber   String
   requesterId     String
-  requester       User                  @relation("Requester", fields: [requesterId], references: [id])
+  requester       User                    @relation("Requester", fields: [requesterId], references: [id])
   departmentId    String?
-  department      Department?           @relation(fields: [departmentId], references: [id])
+  department      Department?             @relation(fields: [departmentId], references: [id])
   categoryId      String?
-  category        Category?             @relation(fields: [categoryId], references: [id])
-  status          PurchaseRequestStatus @default(DRAFT)
-  estimatedBudget Decimal?              @db.Decimal(18, 2)
-  currency        String                @default("UZS")
-  priority        String                @default("normal")
+  category        Category?               @relation(fields: [categoryId], references: [id])
+  status          PurchaseRequestStatus   @default(DRAFT)
+  estimatedBudget Decimal?                @db.Decimal(18, 2)
+  currency        String                  @default("UZS")
+  priority        PurchaseRequestPriority @default(NORMAL)
   requiredDate    DateTime?
   reason          String?
-  aiGenerated     Boolean               @default(false)
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  aiGenerated     Boolean                 @default(false)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
   submittedAt     DateTime?
+
+  // Decision 7/8: who the procurement work is routed to — independent of
+  // the approval decision, mutable while status is SUBMITTED/UNDER_APPROVAL/
+  // APPROVED. Role eligibility (PROCUREMENT_MANAGER/SPECIALIST, never ADMIN
+  // as a target) is a service-layer rule, not a DB constraint (§4 of Phase B).
+  assignedBuyerUserId String?
+  assignedBuyer       User?   @relation("AssignedBuyer", fields: [assignedBuyerUserId], references: [id])
+
+  // Decision 17/18: CANCELLED is not an approval outcome (ApprovalStepInstance
+  // never records it), so it needs its own who/when here. Deliberately NOT
+  // approvedByUserId/rejectedByUserId/decidedAt — those facts live on
+  // ApprovalStepInstance, the single source of truth for approval history
+  // (Decision 6) — duplicating them here was explicitly rejected.
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  cancelledBy       User?     @relation("CancelledBy", fields: [cancelledByUserId], references: [id])
+
+  // Decision 4: optional create-idempotency. Same-key+same-hash replay
+  // returns the existing row; same-key+different-hash is a 409 — see the
+  // partial unique index on (organizationId, idempotencyKey) hand-appended
+  // in this migration (Prisma has no declarative partial-index syntax in
+  // this schema version). payloadHash is computed and compared by the
+  // future service layer only — no DB trigger, no uniqueness on the hash
+  // itself (Decision 13 of Phase B).
+  idempotencyKey String?
+  payloadHash    String?
 
   items            PurchaseRequestItem[]
   comments         PurchaseRequestComment[]
@@ -525,6 +628,8 @@ model PurchaseRequest {
 
   @@unique([organizationId, requestNumber])
   @@index([organizationId, status])
+  @@index([organizationId, requesterId])
+  @@index([organizationId, assignedBuyerUserId])
   @@map("purchase_requests")
 }
 
@@ -532,14 +637,32 @@ model PurchaseRequestItem {
   id                String          @id @default(uuid())
   purchaseRequestId String
   purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
-  itemName          String
-  description       String?
-  quantity          Decimal         @db.Decimal(18, 3)
-  unit              String
-  technicalSpec     Json?
-  // Phase 2 extension point (see FINAL-INFRASTRUCTURE-ARCHITECTURE.md "Product Master extensibility"):
-  // productId String? — nullable FK to a future Product model, additive migration, no backfill required.
 
+  // Decision 11: productId is always optional — a requester may name
+  // something not yet in Product Master. When set, itemName/skuSnapshot are
+  // server-derived from Product at creation time and never re-read later
+  // (historical snapshot, same discipline as StockMovementLine never
+  // recomputing from current state) — enforcement of "client can't supply a
+  // conflicting snapshot alongside productId" is a DTO-layer rule (Phase C),
+  // not expressible as a DB constraint.
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  itemName    String
+  skuSnapshot String?
+  description String?
+
+  quantity Decimal @db.Decimal(18, 3)
+  uomCode  UomCode // Phase B: replaces legacy `unit: String` (Decision 12) — no auto-conversion to Product.baseUomCode, ever; this records what was requested.
+
+  technicalSpec Json?
+  requiredDate  DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Deliberately no own organizationId — same parent-scoped child pattern as
+  // MaterialSpecification/AIExtraction (Architecture Gate §K), reached only
+  // through an already tenant-checked PurchaseRequest.
   @@map("purchase_request_items")
 }
 
@@ -897,6 +1020,10 @@ model Warehouse {
   stockBalances      StockBalance[]
   stockLotPlacements StockLotPlacement[]
   stockPieces        StockPiece[]
+  // M2.5: named relations — a line may independently reference a source AND
+  // a destination warehouse, so a single unnamed back-relation is ambiguous.
+  stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourceWarehouse")
+  stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestWarehouse")
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -918,6 +1045,9 @@ model Location {
   stockBalances      StockBalance[]
   stockLotPlacements StockLotPlacement[]
   stockPieces        StockPiece[]
+  // M2.5: named relations — same source-vs-destination ambiguity as Warehouse.
+  stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourceLocation")
+  stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestLocation")
 
   @@unique([warehouseId, code])
   @@index([organizationId, warehouseId])
@@ -991,6 +1121,11 @@ model StockLot {
 
   placements StockLotPlacement[]
   pieces     StockPiece[]
+  // M2.5: named relations — a line may independently reference a source AND
+  // a destination lot (e.g. RECEIPT sets destLotId on a newly created lot;
+  // ISSUE/TRANSFER from LOT-mode stock sets sourceLotId).
+  stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourceLot")
+  stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestLot")
 
   @@index([organizationId, productId])
   @@index([organizationId, productId, lotNumber])
@@ -1063,6 +1198,12 @@ model StockPiece {
   parentPieceId  String?
   parentPiece    StockPiece?       @relation("PieceLineage", fields: [parentPieceId], references: [id])
   children       StockPiece[]      @relation("PieceLineage")
+  // M2.5: named relations — a line may independently reference this piece as
+  // its source (e.g. ISSUE/SCRAP/SPLIT consuming it) and/or as its
+  // destination (e.g. RECEIPT creating it, or a partial ISSUE/SCRAP/SPLIT's
+  // remnant/child — lineage only, see StockMovementLine's doc comment).
+  stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourcePiece")
+  stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestPiece")
   quantity       Decimal           @db.Decimal(18, 3)
   uomCode        UomCode
   status         StockPieceStatus  @default(AVAILABLE)
@@ -1073,4 +1214,138 @@ model StockPiece {
   @@index([organizationId, productId, warehouseId, locationId, status])
   @@index([organizationId, parentPieceId])
   @@map("stock_pieces")
+}
+
+// M2.5 (Architecture Gate Revision 2, approved — see
+// M2-PRODUCT-STOCK-ARCHITECTURE.md history / architecture-gate record for
+// the full Gate v1 -> Revision 1 -> Revision 2 derivation): the immutable
+// historical event ledger — the sole source of truth for what physically
+// happened. Header + lines (matches this codebase's own established
+// multi-item-document convention: PurchaseRequest+Item, RFQ+Item,
+// Quote+Item, PurchaseOrder+Item).
+//
+// Deliberately NO status / completedAt / updatedAt: every movement is
+// atomic-by-construction — header, all lines, and every Balance/Placement/
+// Piece mutation it causes commit or roll back together in one
+// $transaction — so there is no representable pending/partial state.
+// Deliberately NO productId/quantity/warehouse/location/lot/piece on the
+// header: a single movement may cover multiple products/lines (e.g. a
+// multi-product RECEIPT) — those facts live on StockMovementLine.
+//
+// referenceType/referenceId is a polymorphic pair, no FK — same precedent
+// as Attachment.ownerType/ownerId, not a typed relation per reference kind.
+// idempotencyKey/payloadHash implement the idempotency algorithm approved in
+// Revision 1/2: uniqueness is a hand-added partial index
+// (organizationId, idempotencyKey) WHERE idempotencyKey IS NOT NULL, added
+// by hand in the Phase C migration.sql — not a plain Prisma @@unique,
+// because of Postgres NULL-distinctness (same pattern as StockBalance /
+// StockLotPlacement's own uniqueness).
+//
+// actorUserId is a plain scalar with no Prisma @relation to User — same
+// established convention as Product.createdById / RFQ.createdById /
+// PurchaseOrder.createdById (an "acting user" reference never gets a formal
+// relation + back-relation array on the User model in this codebase).
+model StockMovement {
+  id             String                      @id @default(uuid())
+  organizationId String
+  organization   Organization                @relation(fields: [organizationId], references: [id])
+  type           StockMovementType
+  referenceType  StockMovementReferenceType?
+  referenceId    String?
+  idempotencyKey String?
+  payloadHash    String?
+  actorUserId    String
+  reason         String?
+  createdAt      DateTime                    @default(now())
+
+  lines StockMovementLine[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, type])
+  @@index([organizationId, referenceType, referenceId])
+  @@map("stock_movements")
+}
+
+// M2.5 (Architecture Gate Revision 2, approved): `effect` is the ONLY
+// accounting discriminator (INBOUND/OUTBOUND/TRANSFER/NONE) — server-derived
+// from StockMovement.type (+ sign, for ADJUSTMENT only), NEVER
+// client-supplied. It exclusively governs whether/how this line mutates
+// StockBalance/StockLotPlacement:
+//   INBOUND  -> increment at dest only
+//   OUTBOUND -> decrement at source only
+//   TRANSFER -> decrement at source AND increment at dest, atomically
+//   NONE     -> no Balance/Placement effect at all (SPLIT only)
+//
+// sourcePieceId / destPieceId / sourceLotId / destLotId are PURE
+// LINEAGE/TRACEABILITY references and have ZERO accounting meaning — do
+// NOT derive `effect` or any Balance mutation from their presence/absence
+// (e.g. "destPieceId != null => inbound" is exactly the bug Revision 1
+// fixed). A SPLIT or partial-ISSUE/SCRAP line's destPieceId records "this
+// line produced that piece" for traceability only.
+//
+// baseQuantity is nullable, required if-and-only-if effect != NONE
+// (enforced by a hand-added CHECK constraint in the Phase C migration.sql,
+// tying nullability directly to `effect`). SPLIT lines never compute or
+// store a base-UOM quantity and UomConversionsService.convert() is never
+// called for them — a SPLIT must succeed even when the piece's own uomCode
+// has no confirmed conversion to Product.baseUomCode ("SPLIT / baseQuantity
+// / UOM SEMANTICS", Revision 2). For every other effect, baseQuantity is
+// mandatory, computed once via the existing UomConversionsService (the sole
+// conversion authority — no second conversion mechanism), and frozen at
+// write time (a later change to UomConversion.ratio must never retroactively
+// reinterpret a historical movement).
+//
+// quantity is always the physical quantity in the line's own uomCode:
+// Product.baseUomCode for QUANTITY/LOT-mode lines, the source/dest piece's
+// own (immutable) uomCode for PIECE-mode lines — never client-chosen where
+// it is derivable from an existing piece.
+//
+// organizationId is carried directly (this model IS a DIRECT_TENANT_MODEL)
+// rather than reached only through its parent StockMovement — same
+// physically-significant-child pattern this Stock domain already uses for
+// StockLotPlacement/StockPiece (as opposed to the paperwork-domain
+// PurchaseOrderItem/RFQItem pattern, which carries no organizationId).
+model StockMovementLine {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  movementId     String
+  movement       StockMovement @relation(fields: [movementId], references: [id])
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id])
+  effect         StockMovementLineEffect
+
+  sourcePieceId String?
+  sourcePiece   StockPiece? @relation("MovementLineSourcePiece", fields: [sourcePieceId], references: [id])
+  destPieceId   String?
+  destPiece     StockPiece? @relation("MovementLineDestPiece", fields: [destPieceId], references: [id])
+
+  sourceLotId String?
+  sourceLot   StockLot? @relation("MovementLineSourceLot", fields: [sourceLotId], references: [id])
+  destLotId   String?
+  destLot     StockLot? @relation("MovementLineDestLot", fields: [destLotId], references: [id])
+
+  sourceWarehouseId String?
+  sourceWarehouse   Warehouse? @relation("MovementLineSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  sourceLocationId  String?
+  sourceLocation    Location?  @relation("MovementLineSourceLocation", fields: [sourceLocationId], references: [id])
+
+  destWarehouseId String?
+  destWarehouse   Warehouse? @relation("MovementLineDestWarehouse", fields: [destWarehouseId], references: [id])
+  destLocationId  String?
+  destLocation    Location?  @relation("MovementLineDestLocation", fields: [destLocationId], references: [id])
+
+  uomCode      UomCode
+  quantity     Decimal  @db.Decimal(18, 3)
+  baseQuantity Decimal? @db.Decimal(18, 3)
+
+  @@index([organizationId, movementId])
+  @@index([organizationId, productId])
+  @@index([organizationId, sourcePieceId])
+  @@index([organizationId, destPieceId])
+  @@index([organizationId, sourceLotId])
+  @@index([organizationId, destLotId])
+  @@index([organizationId, sourceWarehouseId])
+  @@index([organizationId, destWarehouseId])
+  @@map("stock_movement_lines")
 }

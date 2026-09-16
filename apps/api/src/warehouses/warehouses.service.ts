@@ -3,7 +3,7 @@ import { Prisma } from "@top/database";
 import type { createTenantSafePrismaClient } from "@top/database";
 import type { CreateWarehouseInput, UpdateWarehouseInput } from "@top/validation";
 import type { WarehouseSummary } from "@top/types";
-import { TENANT_PRISMA } from "../database/database.module";
+import { TENANT_PRISMA, type TenantTransactionClient } from "../database/database.module";
 import { AuditService } from "../common/audit/audit.service";
 
 type TenantDb = ReturnType<typeof createTenantSafePrismaClient>;
@@ -105,6 +105,13 @@ export class WarehousesService {
    */
   async requireWarehouse(organizationId: string, id: string): Promise<WarehouseRow> {
     const warehouse = await this.db.warehouse.findFirst({ where: { id, organizationId } });
+    if (!warehouse) throw new NotFoundException("Warehouse not found");
+    return warehouse;
+  }
+
+  /** M2.5 (Phase F) — transaction-participating counterpart to requireWarehouse, for StockMovementsService. */
+  async requireWarehouseTx(tx: TenantTransactionClient, organizationId: string, id: string): Promise<WarehouseRow> {
+    const warehouse = await tx.warehouse.findFirst({ where: { id, organizationId } });
     if (!warehouse) throw new NotFoundException("Warehouse not found");
     return warehouse;
   }

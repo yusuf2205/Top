@@ -7,7 +7,7 @@ import type {
   UpdateStockLotPlacementInput,
 } from "@top/validation";
 import type { StockLotPlacementSummary } from "@top/types";
-import { TENANT_PRISMA } from "../database/database.module";
+import { TENANT_PRISMA, type TenantTransactionClient } from "../database/database.module";
 import { AuditService } from "../common/audit/audit.service";
 import { WarehousesService } from "../warehouses/warehouses.service";
 import { StockLotsService } from "./stock-lots.service";
@@ -154,6 +154,98 @@ export class StockLotPlacementsService {
 
   private async requirePlacement(organizationId: string, stockLotId: string, id: string): Promise<PlacementRow> {
     const row = await this.db.stockLotPlacement.findFirst({ where: { id, stockLotId, organizationId } });
+    if (!row) throw new NotFoundException("Stock lot placement not found");
+    return row;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // M2.5 (Architecture Gate Revision 2, Phase E) — transaction-safe
+  // concurrency helpers for a FUTURE StockMovementsService. Same
+  // `tx`-parameterized, no-`this.db` discipline as StockBalancesService's
+  // Phase E additions. No StockBalance synchronization here — a future
+  // orchestrator calls the matching StockBalancesService helper separately,
+  // in the same transaction.
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Conditional atomic decrement by (stockLotId, warehouseId, locationId) —
+   * the shape a future ISSUE/TRANSFER-source caller actually has from its
+   * DTO (a lot id + location, not a placement row id). Same atomic
+   * check-and-write pattern as StockBalancesService.decrementOnHand. Never
+   * deletes a zero-quantity placement (Architecture Gate §19) — the row
+   * simply reaches quantity=0 and stays.
+   */
+  async decrementByLotAndLocation(
+    tx: TenantTransactionClient,
+    organizationId: string,
+    params: { stockLotId: string; warehouseId: string; locationId: string | null; amount: string }
+  ): Promise<void> {
+    const result = await tx.stockLotPlacement.updateMany({
+      where: {
+        organizationId,
+        stockLotId: params.stockLotId,
+        warehouseId: params.warehouseId,
+        locationId: params.locationId,
+        quantity: { gte: params.amount },
+      },
+      data: { quantity: { decrement: params.amount } },
+    });
+    if (result.count !== 1) {
+      throw new ConflictException("Insufficient placement quantity for this lot/warehouse/location");
+    }
+  }
+
+  /**
+   * Atomic increment, transparently creating the placement row if this is
+   * the first time this lot has been placed at this (warehouse, location).
+   * Same manual try-update/fallback-create pattern as
+   * StockBalancesService.incrementOnHand, for the identical reason: this
+   * table's uniqueness is two hand-written partial indexes, not a
+   * declarative `@@unique` Prisma's `upsert` could target directly. Same
+   * StockLot identity throughout — this never creates a new StockLot, only
+   * a new/updated placement of the existing one (Architecture Gate §11:
+   * transfer/receipt-into-existing-lot never fabricates a second lot).
+   *
+   * A `create()` P2002 (lost the race to a concurrent first-writer) is
+   * deliberately left UNCAUGHT — see StockBalancesService.incrementOnHand's
+   * doc comment for why an in-transaction catch-and-retry-via-update is
+   * unsafe (confirmed empirically: Postgres aborts the whole transaction
+   * after the failed `create`, so any further statement on it fails with
+   * 25P02). The caller retries the whole `$transaction(...)` boundary.
+   */
+  async incrementOrCreatePlacement(
+    tx: TenantTransactionClient,
+    organizationId: string,
+    params: { stockLotId: string; productId: string; warehouseId: string; locationId: string | null; uomCode: string; amount: string }
+  ): Promise<PlacementRow> {
+    const where = {
+      organizationId,
+      stockLotId: params.stockLotId,
+      warehouseId: params.warehouseId,
+      locationId: params.locationId,
+    };
+
+    const updated = await tx.stockLotPlacement.updateMany({ where, data: { quantity: { increment: params.amount } } });
+    if (updated.count === 1) {
+      return await tx.stockLotPlacement.findFirstOrThrow({ where });
+    }
+
+    return await tx.stockLotPlacement.create({
+      data: {
+        organizationId,
+        stockLotId: params.stockLotId,
+        productId: params.productId,
+        warehouseId: params.warehouseId,
+        locationId: params.locationId,
+        uomCode: params.uomCode as PlacementRow["uomCode"],
+        quantity: params.amount,
+      },
+    });
+  }
+
+  /** Tx-aware ownership-checked lookup — the transaction-participating counterpart to the private `requirePlacement` above (kept separate rather than merged, since that one intentionally stays tied to `this.db` for the existing non-transactional CRUD paths). */
+  async requirePlacementTx(tx: TenantTransactionClient, organizationId: string, id: string): Promise<PlacementRow> {
+    const row = await tx.stockLotPlacement.findFirst({ where: { id, organizationId } });
     if (!row) throw new NotFoundException("Stock lot placement not found");
     return row;
   }

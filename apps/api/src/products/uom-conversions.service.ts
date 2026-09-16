@@ -4,7 +4,7 @@ import type { createTenantSafePrismaClient } from "@top/database";
 import { UOM_BASE_FACTORS, isSameDimension } from "@top/validation";
 import type { ConvertQuantityInput, CreateUomConversionInput, UomCode, UpdateUomConversionInput } from "@top/validation";
 import type { ConvertQuantityResult, UomConversionSummary } from "@top/types";
-import { TENANT_PRISMA } from "../database/database.module";
+import { TENANT_PRISMA, type TenantTransactionClient } from "../database/database.module";
 import { AuditService } from "../common/audit/audit.service";
 
 type TenantDb = ReturnType<typeof createTenantSafePrismaClient>;
@@ -157,9 +157,30 @@ export class UomConversionsService {
    * non-base<->non-base pair (e.g. m<->pcs when base=kg). Throws
    * ConflictException if a required leg is missing or NOT_AVAILABLE — never
    * falls back to a density/geometry formula (M2.2 §18).
+   *
+   * M2.5 (Phase F): optional `tx` parameter. When supplied (only
+   * StockMovementsService does), every read below runs via that transaction
+   * client instead of the injected TENANT_PRISMA instance, so conversion
+   * lookups participate in the same transaction as the movement they're
+   * computing a baseQuantity for. Every existing call site (the standalone
+   * POST /api/v1/products/:id/convert endpoint) is unaffected — the
+   * parameter is optional and defaults to the exact prior behavior.
    */
-  async convert(organizationId: string, productId: string, input: ConvertQuantityInput): Promise<ConvertQuantityResult> {
-    const product = await this.requireProduct(organizationId, productId);
+  async convert(
+    organizationId: string,
+    productId: string,
+    input: ConvertQuantityInput,
+    tx?: TenantTransactionClient
+  ): Promise<ConvertQuantityResult> {
+    // Two explicit branches rather than `const client = tx ?? this.db`:
+    // unifying TenantTransactionClient | TenantDb into one call target sends
+    // TypeScript into an "excessive stack depth" comparison between their
+    // two very different generic client shapes (confirmed empirically in
+    // Phase F, same failure mode as AuditService.log). Branching keeps each
+    // lookup independently, simply typed.
+    const product = tx
+      ? await this.requireProductTx(tx, organizationId, productId)
+      : await this.requireProduct(organizationId, productId);
     const quantity = new Prisma.Decimal(input.quantity);
     const { fromUomCode: from, toUomCode: to } = input;
 
@@ -175,22 +196,29 @@ export class UomConversionsService {
     let result: Prisma.Decimal;
 
     if (from === baseUom) {
-      const ratio = await this.requireConfirmedRatio(organizationId, productId, to);
+      const ratio = await this.requireConfirmedRatio(organizationId, productId, to, tx);
       result = quantity.mul(ratio);
     } else if (to === baseUom) {
-      const ratio = await this.requireConfirmedRatio(organizationId, productId, from);
+      const ratio = await this.requireConfirmedRatio(organizationId, productId, from, tx);
       result = quantity.div(ratio);
     } else {
-      const fromRatio = await this.requireConfirmedRatio(organizationId, productId, from);
-      const toRatio = await this.requireConfirmedRatio(organizationId, productId, to);
+      const fromRatio = await this.requireConfirmedRatio(organizationId, productId, from, tx);
+      const toRatio = await this.requireConfirmedRatio(organizationId, productId, to, tx);
       result = quantity.div(fromRatio).mul(toRatio);
     }
 
     return { quantity: round(result), uomCode: to };
   }
 
-  private async requireConfirmedRatio(organizationId: string, productId: string, uomCode: UomCode): Promise<Prisma.Decimal> {
-    const row = await this.db.uomConversion.findFirst({ where: { productId, organizationId, uomCode } });
+  private async requireConfirmedRatio(
+    organizationId: string,
+    productId: string,
+    uomCode: UomCode,
+    tx?: TenantTransactionClient
+  ): Promise<Prisma.Decimal> {
+    const row = tx
+      ? await tx.uomConversion.findFirst({ where: { productId, organizationId, uomCode } })
+      : await this.db.uomConversion.findFirst({ where: { productId, organizationId, uomCode } });
     if (!row || row.source === "NOT_AVAILABLE" || row.ratio === null) {
       throw new ConflictException(`No confirmed conversion available for ${uomCode} on this product`);
     }
@@ -199,6 +227,12 @@ export class UomConversionsService {
 
   private async requireProduct(organizationId: string, productId: string) {
     const product = await this.db.product.findFirst({ where: { id: productId, organizationId } });
+    if (!product) throw new NotFoundException("Product not found");
+    return product;
+  }
+
+  private async requireProductTx(tx: TenantTransactionClient, organizationId: string, productId: string) {
+    const product = await tx.product.findFirst({ where: { id: productId, organizationId } });
     if (!product) throw new NotFoundException("Product not found");
     return product;
   }
