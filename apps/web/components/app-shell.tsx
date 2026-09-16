@@ -2,8 +2,9 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
+import { RealtimeProvider, useRealtimeStatus } from "../lib/realtime";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Администратор",
@@ -14,9 +15,17 @@ const ROLE_LABELS: Record<string, string> = {
   SUPPLIER: "Поставщик",
 };
 
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Дашборд" },
+  { href: "/purchase-requests", label: "Заявки на закупку" },
+  { href: "/settings/organization", label: "Организация" },
+  { href: "/settings/members", label: "Сотрудники" },
+];
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   async function onLogout() {
     await logout();
@@ -24,28 +33,52 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="app-sidebar">
-        <div className="brand">TOP Procurement</div>
-        <nav className="app-nav">
-          <Link href="/dashboard">Дашборд</Link>
-          <Link href="/settings/organization">Организация</Link>
-          <Link href="/settings/members">Сотрудники</Link>
-        </nav>
+    <RealtimeProvider>
+      <div className="app-shell">
+        <aside className="app-sidebar">
+          <div className="brand">TOP Procurement</div>
+          <nav className="app-nav">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+              return (
+                <Link key={item.href} href={item.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
 
-        {user && (
-          <div className="org-info">
-            <div className="name">{user.organizationName}</div>
-            <div className="muted">
-              {user.fullName} · {ROLE_LABELS[user.role] ?? user.role}
+          {user && (
+            <div className="org-info">
+              <div className="name">{user.organizationName}</div>
+              <div className="muted">
+                {user.fullName} · {ROLE_LABELS[user.role] ?? user.role}
+              </div>
+              <ConnectionIndicator />
+              <button className="btn btn-secondary btn-small" style={{ marginTop: "0.6rem" }} onClick={onLogout}>
+                Выйти
+              </button>
             </div>
-            <button className="btn btn-secondary btn-small" style={{ marginTop: "0.6rem" }} onClick={onLogout}>
-              Выйти
-            </button>
-          </div>
-        )}
-      </aside>
-      <main className="app-main">{children}</main>
+          )}
+        </aside>
+        <main className="app-main">{children}</main>
+      </div>
+    </RealtimeProvider>
+  );
+}
+
+/**
+ * Purely informational — the rest of the app never depends on this value
+ * (REST remains the source of truth regardless of socket state, Phase A
+ * §39/Phase B §34). Reuses the `.realtime-dot` styling already present in
+ * globals.css since Phase A, which had no consumer until now.
+ */
+function ConnectionIndicator() {
+  const connected = useRealtimeStatus();
+  return (
+    <div className="muted" style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", fontSize: "0.76rem" }}>
+      <span className={connected ? "realtime-dot live" : "realtime-dot"} />
+      {connected ? "Обновления в реальном времени" : "Нет соединения"}
     </div>
   );
 }
