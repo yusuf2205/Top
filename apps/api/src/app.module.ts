@@ -12,6 +12,7 @@ import { ProductsModule } from "./products/products.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
 import { StockModule } from "./stock/stock.module";
 import { RealtimeModule } from "./realtime/realtime.module";
+import { PurchaseRequestsModule } from "./purchase-requests/purchase-requests.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { TenantGuard } from "./common/guards/tenant.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -40,6 +41,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     WarehousesModule,
     StockModule,
     RealtimeModule,
+    PurchaseRequestsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

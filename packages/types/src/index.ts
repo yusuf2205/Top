@@ -41,6 +41,16 @@ export const PurchaseRequestPriority = {
 } as const;
 export type PurchaseRequestPriority = (typeof PurchaseRequestPriority)[keyof typeof PurchaseRequestPriority];
 
+// M3.1 Phase E: ApprovalInstance/ApprovalStepInstance already existed in the
+// M1-era schema (see PurchaseRequest Phase E notes) — this is the
+// browser-safe mirror, added only now that an endpoint actually returns it.
+export const ApprovalStatus = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+} as const;
+export type ApprovalStatus = (typeof ApprovalStatus)[keyof typeof ApprovalStatus];
+
 export const RfqStatus = {
   DRAFT: "DRAFT",
   SENT: "SENT",
@@ -431,6 +441,87 @@ export interface StockMovementListItem {
 
 export interface StockMovementListResult {
   items: StockMovementListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// ── M3.1 Phase D — Purchase Request ──
+// Deliberately excludes payloadHash/idempotencyKey (never exposed in normal
+// API responses — Architecture Gate Revision 1 / Phase D §35).
+// submittedAt/cancelledAt/cancelledByUserId/approval were added in Phase E,
+// once submit/approve/reject/cancel/assign actually populate them.
+
+export interface PurchaseRequestApprovalStepView {
+  status: ApprovalStatus;
+  stepOrder: number;
+  approverRole: UserRole;
+  assignedUserId: string | null;
+  decidedById: string | null;
+  decidedAt: string | null;
+  comment: string | null;
+}
+
+/** Bounded — a single step only (M3.1 has exactly one), never a full steps[] array (Phase E §31/§37: "expose only through the bounded detail approval view"). */
+export interface PurchaseRequestApprovalView {
+  status: ApprovalStatus;
+  completedAt: string | null;
+  step: PurchaseRequestApprovalStepView | null;
+}
+
+export interface PurchaseRequestItemSummary {
+  id: string;
+  productId: string | null;
+  itemName: string;
+  skuSnapshot: string | null;
+  description: string | null;
+  quantity: string;
+  uomCode: UomCode;
+  technicalSpec: Record<string, unknown> | null;
+  requiredDate: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseRequestSummary {
+  id: string;
+  requestNumber: string;
+  requesterId: string;
+  departmentId: string | null;
+  categoryId: string | null;
+  status: PurchaseRequestStatus;
+  priority: PurchaseRequestPriority;
+  requiredDate: string | null;
+  reason: string | null;
+  estimatedBudget: string | null;
+  currency: string;
+  assignedBuyerUserId: string | null;
+  submittedAt: string | null;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PurchaseRequestItemSummary[];
+  approval: PurchaseRequestApprovalView | null;
+}
+
+/** LIST row — lightweight, no items[] (see itemCount), same shape discipline as StockMovementListItem. */
+export interface PurchaseRequestListItem {
+  id: string;
+  requestNumber: string;
+  status: PurchaseRequestStatus;
+  priority: PurchaseRequestPriority;
+  requesterId: string;
+  departmentId: string | null;
+  assignedBuyerUserId: string | null;
+  requiredDate: string | null;
+  itemCount: number;
+  createdAt: string;
+}
+
+export interface PurchaseRequestListResult {
+  items: PurchaseRequestListItem[];
   total: number;
   page: number;
   pageSize: number;
