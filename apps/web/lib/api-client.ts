@@ -1,18 +1,32 @@
 import type {
+  CategorySummary,
   CurrentUser,
   OrganizationMember,
   PendingInvitation,
   ProductListResult,
   PurchaseRequestListResult,
   PurchaseRequestSummary,
+  SupplierCapabilityView,
+  SupplierContactView,
+  SupplierDetail,
+  SupplierListResult,
 } from "@top/types";
 import type {
+  AddSupplierCapabilityInput,
   AssignPurchaseRequestInput,
+  CreateCategoryInput,
   CreatePurchaseRequestInput,
+  CreateSupplierContactInput,
+  CreateSupplierInput,
   PurchaseRequestItemInput,
   RejectPurchaseRequestInput,
+  UpdateCategoryInput,
   UpdatePurchaseRequestInput,
   UpdatePurchaseRequestItemInput,
+  UpdateSupplierContactInput,
+  UpdateSupplierInput,
+  UpdateSupplierRatingInput,
+  UpdateSupplierStatusInput,
 } from "@top/validation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -115,6 +129,15 @@ export interface ProductListQuery {
   categoryId?: string;
   productType?: string;
   active?: "true" | "false";
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SupplierListQuery {
+  search?: string;
+  status?: string;
+  categoryId?: string;
+  countryCode?: string;
   page?: number;
   pageSize?: number;
 }
@@ -222,5 +245,47 @@ export const api = {
 
     assignBuyer: (id: string, input: AssignPurchaseRequestInput) =>
       request<PurchaseRequestSummary>(`/api/v1/purchase-requests/${id}/assign`, { method: "PATCH", body: JSON.stringify(input) }),
+  },
+
+  suppliers: {
+    list: (query: SupplierListQuery = {}) => request<SupplierListResult>(`/api/v1/suppliers${toQueryString(query)}`),
+
+    get: (id: string) => request<SupplierDetail>(`/api/v1/suppliers/${id}`),
+
+    create: (input: CreateSupplierInput) => request<SupplierDetail>("/api/v1/suppliers", { method: "POST", body: JSON.stringify(input) }),
+
+    update: (id: string, input: UpdateSupplierInput) =>
+      request<SupplierDetail>(`/api/v1/suppliers/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+    updateStatus: (id: string, input: UpdateSupplierStatusInput) =>
+      request<SupplierDetail>(`/api/v1/suppliers/${id}/status`, { method: "PATCH", body: JSON.stringify(input) }),
+
+    updateRating: (id: string, input: UpdateSupplierRatingInput) =>
+      request<SupplierDetail>(`/api/v1/suppliers/${id}/rating`, { method: "PATCH", body: JSON.stringify(input) }),
+
+    addContact: (id: string, input: CreateSupplierContactInput) =>
+      request<SupplierContactView>(`/api/v1/suppliers/${id}/contacts`, { method: "POST", body: JSON.stringify(input) }),
+
+    updateContact: (id: string, contactId: string, input: UpdateSupplierContactInput) =>
+      request<SupplierContactView>(`/api/v1/suppliers/${id}/contacts/${contactId}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+    archiveContact: (id: string, contactId: string) =>
+      request<SupplierContactView>(`/api/v1/suppliers/${id}/contacts/${contactId}/archive`, { method: "POST" }),
+
+    addCapability: (id: string, input: AddSupplierCapabilityInput) =>
+      request<SupplierCapabilityView>(`/api/v1/suppliers/${id}/capabilities`, { method: "POST", body: JSON.stringify(input) }),
+
+    removeCapability: (id: string, categoryId: string) =>
+      request<void>(`/api/v1/suppliers/${id}/capabilities/${categoryId}`, { method: "DELETE" }),
+  },
+
+  categories: {
+    list: (includeInactive = false) =>
+      request<CategorySummary[]>(`/api/v1/categories${includeInactive ? "?includeInactive=true" : ""}`),
+
+    create: (input: CreateCategoryInput) => request<CategorySummary>("/api/v1/categories", { method: "POST", body: JSON.stringify(input) }),
+
+    update: (id: string, input: UpdateCategoryInput) =>
+      request<CategorySummary>(`/api/v1/categories/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   },
 };

@@ -3,8 +3,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type { UserRole } from "@top/types";
 import { useAuth } from "../lib/auth-context";
 import { RealtimeProvider, useRealtimeStatus } from "../lib/realtime";
+import { canViewSuppliers } from "../lib/supplier-permissions";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Администратор",
@@ -15,9 +17,16 @@ const ROLE_LABELS: Record<string, string> = {
   SUPPLIER: "Поставщик",
 };
 
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  visible?: (role: UserRole) => boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Дашборд" },
   { href: "/purchase-requests", label: "Заявки на закупку" },
+  { href: "/suppliers", label: "Поставщики", visible: canViewSuppliers },
   { href: "/settings/organization", label: "Организация" },
   { href: "/settings/members", label: "Сотрудники" },
 ];
@@ -32,13 +41,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.push("/login");
   }
 
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.visible || (user && item.visible(user.role)));
+
   return (
     <RealtimeProvider>
       <div className="app-shell">
         <aside className="app-sidebar">
           <div className="brand">TOP Procurement</div>
           <nav className="app-nav">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
               return (
                 <Link key={item.href} href={item.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>

@@ -240,6 +240,10 @@ h3 {
   box-shadow: var(--shadow-sm);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
+  /* Phase E (M3.2): a long unbroken value (URL, email, notes) must wrap
+     within the card rather than overflow the viewport — badges opt back out
+     via their own `white-space: nowrap`, which still wins for that element. */
+  overflow-wrap: break-word;
 }
 
 .card-header {
@@ -364,6 +368,12 @@ table.data-table {
 .priority-urgent { background: var(--color-danger-bg); color: var(--color-danger); border-color: #f6c6cc; font-weight: 700; }
 .priority-high { background: #fff6e5; color: #92670c; border-color: #ffe6ad; }
 
+/* ── Supplier status badges (M3.2 Phase D) ── */
+.status-active { background: var(--color-success-bg); color: var(--color-success-text); border-color: #bfe8cc; }
+.status-inactive { background: #f1f2f4; color: #4b5261; border-color: #e2e5ea; }
+.status-blocked { background: var(--color-danger-bg); color: var(--color-danger); border-color: #f6c6cc; }
+.status-archived { background: #f1f2f4; color: #6b7280; border-color: #e2e5ea; }
+
 /* ── Purchase request table / responsive cards ── */
 .pr-table-wrap {
   overflow-x: auto;
@@ -401,6 +411,52 @@ table.data-table {
     display: none;
   }
   .pr-cards {
+    display: block;
+  }
+}
+
+/* ── Supplier table / responsive cards (M3.2 Phase D) ── */
+.supplier-table-wrap {
+  overflow-x: auto;
+}
+.supplier-name-link {
+  font-weight: 600;
+  color: var(--color-primary);
+  overflow-wrap: break-word;
+}
+.supplier-cards {
+  display: none;
+}
+.supplier-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.6rem;
+}
+.supplier-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.supplier-card-top .supplier-name-link {
+  min-width: 0;
+}
+.supplier-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 720px) {
+  .supplier-table-wrap {
+    display: none;
+  }
+  .supplier-cards {
     display: block;
   }
 }
@@ -463,6 +519,7 @@ table.data-table {
   width: 100%;
   max-width: 440px;
   padding: 1.5rem;
+  overflow-wrap: break-word;
 }
 .dialog h2 {
   font-size: 1.05rem;
