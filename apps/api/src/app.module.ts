@@ -15,6 +15,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
 import { PurchaseRequestsModule } from "./purchase-requests/purchase-requests.module";
 import { SuppliersModule } from "./suppliers/suppliers.module";
 import { CategoriesModule } from "./categories/categories.module";
+import { RfqsModule } from "./rfqs/rfqs.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { TenantGuard } from "./common/guards/tenant.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
@@ -46,6 +47,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     PurchaseRequestsModule,
     SuppliersModule,
     CategoriesModule,
+    RfqsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

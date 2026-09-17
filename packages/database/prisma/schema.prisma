@@ -57,6 +57,7 @@ enum RfqStatus {
 }
 
 enum RfqSupplierStatus {
+  SELECTED
   INVITED
   VIEWED
   SUBMITTED
@@ -217,26 +218,26 @@ model Organization {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  users            User[]
-  departments      Department[]
-  categories       Category[]
-  suppliers        Supplier[]
-  purchaseRequests PurchaseRequest[]
-  rfqs             RFQ[]
-  purchaseOrders   PurchaseOrder[]
-  approvalRules    ApprovalRule[]
-  taxRules         TaxRule[]
-  exchangeRates    ExchangeRate[]
-  auditLogs        AuditLog[]
-  notifications    Notification[]
-  invitations      Invitation[]
-  productCategories ProductCategory[]
-  products          Product[]
-  uomConversions    UomConversion[]
-  warehouses        Warehouse[]
-  locations         Location[]
-  stockBalances     StockBalance[]
-  stockLots         StockLot[]
+  users              User[]
+  departments        Department[]
+  categories         Category[]
+  suppliers          Supplier[]
+  purchaseRequests   PurchaseRequest[]
+  rfqs               RFQ[]
+  purchaseOrders     PurchaseOrder[]
+  approvalRules      ApprovalRule[]
+  taxRules           TaxRule[]
+  exchangeRates      ExchangeRate[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  invitations        Invitation[]
+  productCategories  ProductCategory[]
+  products           Product[]
+  uomConversions     UomConversion[]
+  warehouses         Warehouse[]
+  locations          Location[]
+  stockBalances      StockBalance[]
+  stockLots          StockLot[]
   stockLotPlacements StockLotPlacement[]
   stockPieces        StockPiece[]
   stockMovements     StockMovement[]
@@ -264,8 +265,9 @@ model User {
   purchaseRequests          PurchaseRequest[] @relation("Requester")
   purchaseRequestsAssigned  PurchaseRequest[] @relation("AssignedBuyer")
   purchaseRequestsCancelled PurchaseRequest[] @relation("CancelledBy")
-  refreshTokens     RefreshToken[]
-  invitationsSent   Invitation[]     @relation("InvitedBy")
+  refreshTokens             RefreshToken[]
+  invitationsSent           Invitation[]      @relation("InvitedBy")
+  rfqsCreated               RFQ[]             @relation("RfqCreator")
 
   // Global uniqueness (not per-organization): M1 added self-service login by
   // email+password alone, with no organization selector on the login form —
@@ -324,15 +326,15 @@ model Invitation {
 // ────────────────────────────────────────────────────────────
 
 model ProductCategory {
-  id             String           @id @default(uuid())
+  id             String            @id @default(uuid())
   organizationId String
-  organization   Organization     @relation(fields: [organizationId], references: [id])
+  organization   Organization      @relation(fields: [organizationId], references: [id])
   parentId       String?
-  parent         ProductCategory? @relation("ProductCategoryTree", fields: [parentId], references: [id])
+  parent         ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id])
   children       ProductCategory[] @relation("ProductCategoryTree")
   name           String
-  active         Boolean          @default(true)
-  createdAt      DateTime         @default(now())
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
 
   products Product[]
 
@@ -368,14 +370,15 @@ model Product {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
-  uomConversions UomConversion[]
-  specification  MaterialSpecification?
-  stockBalances  StockBalance[]
-  stockLots      StockLot[]
-  stockLotPlacements StockLotPlacement[]
-  stockPieces    StockPiece[]
-  stockMovementLines StockMovementLine[]
+  uomConversions       UomConversion[]
+  specification        MaterialSpecification?
+  stockBalances        StockBalance[]
+  stockLots            StockLot[]
+  stockLotPlacements   StockLotPlacement[]
+  stockPieces          StockPiece[]
+  stockMovementLines   StockMovementLine[]
   purchaseRequestItems PurchaseRequestItem[]
+  rfqItems             RFQItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, active])
@@ -440,10 +443,6 @@ model UomConversion {
   notes          String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
-
-  @@unique([productId, uomCode])
-  @@index([organizationId, productId])
-  @@map("uom_conversions")
   // Manual addition to the generated migration SQL (Prisma has no declarative
   // CHECK syntax in this version): ALTER TABLE uom_conversions ADD CONSTRAINT
   // uom_conversions_ratio_source_consistency CHECK
@@ -451,6 +450,10 @@ model UomConversion {
   //    ("source" != 'NOT_AVAILABLE' AND "ratio" > 0));
   // — see M2.2 §11. productId != baseUomCode / dimension checks are cross-table
   // (would need a trigger) and are enforced at the application layer instead.
+
+  @@unique([productId, uomCode])
+  @@index([organizationId, productId])
+  @@map("uom_conversions")
 }
 
 model Department {
@@ -709,6 +712,11 @@ model PurchaseRequestItem {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // M3.3 Phase B: an RFQItem snapshots this row at RFQ-add time; the same PR
+  // item may be selected into more than one RFQ (RFQ ↔ PR is 1:N, and item
+  // subset selection is per-RFQ — Architecture Revision 1 D4/D6).
+  rfqItems RFQItem[]
+
   // Deliberately no own organizationId — same parent-scoped child pattern as
   // MaterialSpecification/AIExtraction (Architecture Gate §K), reached only
   // through an already tenant-checked PurchaseRequest.
@@ -730,18 +738,47 @@ model PurchaseRequestComment {
 // RFQ
 // ────────────────────────────────────────────────────────────
 
+// M3.3 Phase B (Architecture Gate Revision 1, locked). RFQ is a direct tenant
+// model (organizationId) — RFQItem/RFQSupplier are children reached only
+// through an already tenant-checked RFQ (see packages/database/src/client.ts
+// DIRECT_TENANT_MODELS comment, already correct before this phase — no
+// change needed there). `deadline` is nullable because a DRAFT RFQ may be
+// created before a deadline is decided (Revision 1 D80); Phase C's send
+// action enforces non-null + future at that point, not this schema.
+// `createdBy` has no explicit onDelete override, matching every other User
+// relation on this schema (Requester/AssignedBuyer/CancelledBy/InvitedBy) —
+// the Postgres/Prisma default (RESTRICT) applies. No buyerUserId (ownership
+// derives from purchaseRequest.assignedBuyer — Revision 1 D28/§28), no
+// cancelledByUserId (AuditLog is authoritative for the cancel actor —
+// Revision 1 §10), no closeReason column (close reason is audit-context-only
+// — Revision 1 §11).
 model RFQ {
-  id                String          @id @default(uuid())
-  organizationId    String
-  organization      Organization    @relation(fields: [organizationId], references: [id])
-  purchaseRequestId String
-  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
-  rfqNumber         String
-  status            RfqStatus       @default(DRAFT)
-  deadline          DateTime
-  createdById       String
-  createdAt         DateTime        @default(now())
-  sentAt            DateTime?
+  id                   String          @id @default(uuid())
+  organizationId       String
+  organization         Organization    @relation(fields: [organizationId], references: [id])
+  purchaseRequestId    String
+  purchaseRequest      PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  rfqNumber            String
+  status               RfqStatus       @default(DRAFT)
+  deadline             DateTime?
+  supplierInstructions String?
+  internalNotes        String?
+  createdById          String
+  createdBy            User            @relation("RfqCreator", fields: [createdById], references: [id])
+  createdAt            DateTime        @default(now())
+  sentAt               DateTime?
+  closedAt             DateTime?
+  cancelledAt          DateTime?
+  cancelReason         String?
+
+  // Create-idempotency (Revision 1 D8/§21-22) — same hand-appended partial
+  // unique index pattern as PurchaseRequest/Supplier: a partial unique index
+  // on (organizationId, idempotencyKey) WHERE idempotencyKey IS NOT NULL is
+  // added by this phase's migration SQL directly (Prisma has no declarative
+  // partial-index syntax in this schema version). Never exposed through any
+  // DTO (packages/types RfqSummary/RfqDetail deliberately omit both).
+  idempotencyKey String?
+  payloadHash    String?
 
   items           RFQItem[]
   suppliers       RFQSupplier[]
@@ -749,35 +786,68 @@ model RFQ {
 
   @@unique([organizationId, rfqNumber])
   @@index([organizationId, status])
+  @@index([organizationId, purchaseRequestId])
   @@map("rfqs")
 }
 
+// M3.3 Phase B: replaces the legacy free-string `unit` + adds the PR-item
+// snapshot linkage this model was missing entirely (Architecture Revision 1
+// D6). `purchaseRequestItemId` is non-null — every RFQItem always snapshots
+// a real PurchaseRequestItem, there is no free-text RFQ line (Revision 1 D4:
+// item SUBSET selection, never fabrication). `productId` stays optional with
+// no explicit onDelete, mirroring PurchaseRequestItem.product's own
+// omission (Prisma default SetNull for an optional FK) — a later Product
+// deletion must never break a historical RFQ snapshot. `internalItemNote`
+// snapshots PurchaseRequestItem.notes, whose own visibility contract is
+// undocumented anywhere in this codebase (no schema comment, no UI
+// disclaimer) — named explicitly "internal" here so no future Supplier
+// Portal DTO can casually expose it (Revision 1 §17/§18).
 model RFQItem {
-  id            String  @id @default(uuid())
-  rfqId         String
-  rfq           RFQ     @relation(fields: [rfqId], references: [id])
-  itemName      String
-  description   String?
-  quantity      Decimal @db.Decimal(18, 3)
-  unit          String
-  technicalSpec Json?
+  id                    String              @id @default(uuid())
+  rfqId                 String
+  rfq                   RFQ                 @relation(fields: [rfqId], references: [id])
+  purchaseRequestItemId String
+  purchaseRequestItem   PurchaseRequestItem @relation(fields: [purchaseRequestItemId], references: [id])
+  productId             String?
+  product               Product?            @relation(fields: [productId], references: [id])
+  itemName              String
+  skuSnapshot           String?
+  description           String?
+  quantity              Decimal             @db.Decimal(18, 3)
+  uomCode               UomCode
+  technicalSpec         Json?
+  requiredDate          DateTime?
+  internalItemNote      String?
 
   quoteItems QuoteItem[]
 
+  @@unique([rfqId, purchaseRequestItemId])
   @@map("rfq_items")
 }
 
+// M3.3 Phase B: `portalToken` (plaintext bearer credential) is REMOVED, not
+// renamed-with-value-copy — see this phase's migration for the fail-closed
+// empty-data guard that makes this safe (Revision 1 §3/§21/§30-32).
+// `portalTokenHash`/`tokenExpiresAt`/`invitedAt` are all nullable and never
+// written by M3.3 — the Supplier Portal phase owns minting a real token and
+// the SELECTED -> INVITED transition (Revision 1 §2). Snapshot fields are
+// NON-NULL because every code path that creates a row here (Phase C, not
+// this phase) always has an already-loaded, already-validated Supplier row
+// to snapshot from — there is no code path that ever needs to persist a
+// null (Revision 1 §14).
 model RFQSupplier {
-  id             String            @id @default(uuid())
-  rfqId          String
-  rfq            RFQ               @relation(fields: [rfqId], references: [id])
-  supplierId     String
-  supplier       Supplier          @relation(fields: [supplierId], references: [id])
-  portalToken    String            @unique
-  tokenExpiresAt DateTime
-  status         RfqSupplierStatus @default(INVITED)
-  invitedAt      DateTime          @default(now())
-  viewedAt       DateTime?
+  id                   String            @id @default(uuid())
+  rfqId                String
+  rfq                  RFQ               @relation(fields: [rfqId], references: [id])
+  supplierId           String
+  supplier             Supplier          @relation(fields: [supplierId], references: [id])
+  supplierCodeSnapshot String
+  companyNameSnapshot  String
+  portalTokenHash      String?           @unique
+  tokenExpiresAt       DateTime?
+  status               RfqSupplierStatus @default(SELECTED)
+  invitedAt            DateTime?
+  viewedAt             DateTime?
 
   quote Quote?
 
@@ -790,20 +860,20 @@ model RFQSupplier {
 // ────────────────────────────────────────────────────────────
 
 model Quote {
-  id                String      @id @default(uuid())
-  rfqSupplierId     String      @unique
-  rfqSupplier       RFQSupplier @relation(fields: [rfqSupplierId], references: [id])
-  currency          String
-  vatRate           Decimal?    @db.Decimal(5, 2)
-  vatIncluded       Boolean     @default(false)
-  deliveryCost      Decimal     @default(0) @db.Decimal(18, 2)
-  deliveryIncluded  Boolean     @default(false)
-  leadTimeDays      Int?
-  paymentTerms      String?
-  warranty          String?
-  notes             String?
-  status            QuoteStatus @default(SUBMITTED)
-  submittedAt       DateTime    @default(now())
+  id               String      @id @default(uuid())
+  rfqSupplierId    String      @unique
+  rfqSupplier      RFQSupplier @relation(fields: [rfqSupplierId], references: [id])
+  currency         String
+  vatRate          Decimal?    @db.Decimal(5, 2)
+  vatIncluded      Boolean     @default(false)
+  deliveryCost     Decimal     @default(0) @db.Decimal(18, 2)
+  deliveryIncluded Boolean     @default(false)
+  leadTimeDays     Int?
+  paymentTerms     String?
+  warranty         String?
+  notes            String?
+  status           QuoteStatus @default(SUBMITTED)
+  submittedAt      DateTime    @default(now())
 
   items          QuoteItem[]
   extraction     AIExtraction?
@@ -849,21 +919,21 @@ model AIExtraction {
 // ────────────────────────────────────────────────────────────
 
 model Recommendation {
-  id                     String    @id @default(uuid())
-  rfqId                  String
-  rfq                    RFQ       @relation(fields: [rfqId], references: [id])
-  version                Int       @default(1)
-  recommendedSupplierId  String
-  reasons                Json
-  estimatedSaving        Decimal?  @db.Decimal(18, 2)
-  cheapestSupplierId     String?
-  fastestSupplierId      String?
-  model                  String
-  inputSnapshot          Json
-  createdAt              DateTime  @default(now())
-  acceptedById           String?
-  acceptedAt             DateTime?
-  overridden             Boolean   @default(false)
+  id                    String    @id @default(uuid())
+  rfqId                 String
+  rfq                   RFQ       @relation(fields: [rfqId], references: [id])
+  version               Int       @default(1)
+  recommendedSupplierId String
+  reasons               Json
+  estimatedSaving       Decimal?  @db.Decimal(18, 2)
+  cheapestSupplierId    String?
+  fastestSupplierId     String?
+  model                 String
+  inputSnapshot         Json
+  createdAt             DateTime  @default(now())
+  acceptedById          String?
+  acceptedAt            DateTime?
+  overridden            Boolean   @default(false)
 
   @@index([rfqId, version])
   @@map("recommendations")
@@ -889,15 +959,15 @@ model ApprovalRule {
 }
 
 model ApprovalInstance {
-  id                 String             @id @default(uuid())
-  entityType         ApprovalEntityType
-  purchaseRequestId  String?            @unique
-  purchaseRequest    PurchaseRequest?   @relation(fields: [purchaseRequestId], references: [id])
-  purchaseOrderId    String?            @unique
-  purchaseOrder      PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
-  status             ApprovalStatus     @default(PENDING)
-  createdAt          DateTime           @default(now())
-  completedAt        DateTime?
+  id                String             @id @default(uuid())
+  entityType        ApprovalEntityType
+  purchaseRequestId String?            @unique
+  purchaseRequest   PurchaseRequest?   @relation(fields: [purchaseRequestId], references: [id])
+  purchaseOrderId   String?            @unique
+  purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
+  status            ApprovalStatus     @default(PENDING)
+  createdAt         DateTime           @default(now())
+  completedAt       DateTime?
 
   steps ApprovalStepInstance[]
 
@@ -905,16 +975,16 @@ model ApprovalInstance {
 }
 
 model ApprovalStepInstance {
-  id                  String           @id @default(uuid())
-  approvalInstanceId  String
-  approvalInstance    ApprovalInstance @relation(fields: [approvalInstanceId], references: [id])
-  stepOrder           Int
-  approverRole        UserRole
-  assignedUserId       String?
-  status               ApprovalStatus   @default(PENDING)
-  decidedById          String?
-  decidedAt            DateTime?
-  comment              String?
+  id                 String           @id @default(uuid())
+  approvalInstanceId String
+  approvalInstance   ApprovalInstance @relation(fields: [approvalInstanceId], references: [id])
+  stepOrder          Int
+  approverRole       UserRole
+  assignedUserId     String?
+  status             ApprovalStatus   @default(PENDING)
+  decidedById        String?
+  decidedAt          DateTime?
+  comment            String?
 
   @@map("approval_step_instances")
 }
@@ -1009,7 +1079,7 @@ model Attachment {
   createdAt      DateTime            @default(now())
 
   quote             Quote?             @relation(fields: [quoteId], references: [id])
-  quoteId            String?
+  quoteId           String?
   supplierDocuments SupplierDocument[]
 
   @@index([organizationId, ownerType, ownerId])
@@ -1065,10 +1135,10 @@ model Warehouse {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  locations          Location[]
-  stockBalances      StockBalance[]
-  stockLotPlacements StockLotPlacement[]
-  stockPieces        StockPiece[]
+  locations                  Location[]
+  stockBalances              StockBalance[]
+  stockLotPlacements         StockLotPlacement[]
+  stockPieces                StockPiece[]
   // M2.5: named relations — a line may independently reference a source AND
   // a destination warehouse, so a single unnamed back-relation is ambiguous.
   stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourceWarehouse")
@@ -1091,9 +1161,9 @@ model Location {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  stockBalances      StockBalance[]
-  stockLotPlacements StockLotPlacement[]
-  stockPieces        StockPiece[]
+  stockBalances              StockBalance[]
+  stockLotPlacements         StockLotPlacement[]
+  stockPieces                StockPiece[]
   // M2.5: named relations — same source-vs-destination ambiguity as Warehouse.
   stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourceLocation")
   stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestLocation")
@@ -1168,8 +1238,8 @@ model StockLot {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  placements StockLotPlacement[]
-  pieces     StockPiece[]
+  placements                 StockLotPlacement[]
+  pieces                     StockPiece[]
   // M2.5: named relations — a line may independently reference a source AND
   // a destination lot (e.g. RECEIPT sets destLotId on a newly created lot;
   // ISSUE/TRANSFER from LOT-mode stock sets sourceLotId).
@@ -1233,31 +1303,31 @@ model StockLotPlacement {
 // pieces may legitimately coexist at the exact same (product, warehouse,
 // location) simultaneously — this is not a StockBalance-style aggregate key.
 model StockPiece {
-  id             String            @id @default(uuid())
-  organizationId String
-  organization   Organization      @relation(fields: [organizationId], references: [id])
-  productId      String
-  product        Product           @relation(fields: [productId], references: [id])
-  lotId          String
-  lot            StockLot          @relation(fields: [lotId], references: [id])
-  warehouseId    String
-  warehouse      Warehouse         @relation(fields: [warehouseId], references: [id])
-  locationId     String?
-  location       Location?         @relation(fields: [locationId], references: [id])
-  parentPieceId  String?
-  parentPiece    StockPiece?       @relation("PieceLineage", fields: [parentPieceId], references: [id])
-  children       StockPiece[]      @relation("PieceLineage")
+  id                         String              @id @default(uuid())
+  organizationId             String
+  organization               Organization        @relation(fields: [organizationId], references: [id])
+  productId                  String
+  product                    Product             @relation(fields: [productId], references: [id])
+  lotId                      String
+  lot                        StockLot            @relation(fields: [lotId], references: [id])
+  warehouseId                String
+  warehouse                  Warehouse           @relation(fields: [warehouseId], references: [id])
+  locationId                 String?
+  location                   Location?           @relation(fields: [locationId], references: [id])
+  parentPieceId              String?
+  parentPiece                StockPiece?         @relation("PieceLineage", fields: [parentPieceId], references: [id])
+  children                   StockPiece[]        @relation("PieceLineage")
   // M2.5: named relations — a line may independently reference this piece as
   // its source (e.g. ISSUE/SCRAP/SPLIT consuming it) and/or as its
   // destination (e.g. RECEIPT creating it, or a partial ISSUE/SCRAP/SPLIT's
   // remnant/child — lineage only, see StockMovementLine's doc comment).
   stockMovementLinesAsSource StockMovementLine[] @relation("MovementLineSourcePiece")
   stockMovementLinesAsDest   StockMovementLine[] @relation("MovementLineDestPiece")
-  quantity       Decimal           @db.Decimal(18, 3)
-  uomCode        UomCode
-  status         StockPieceStatus  @default(AVAILABLE)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  quantity                   Decimal             @db.Decimal(18, 3)
+  uomCode                    UomCode
+  status                     StockPieceStatus    @default(AVAILABLE)
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
 
   @@index([organizationId, lotId])
   @@index([organizationId, productId, warehouseId, locationId, status])
@@ -1355,13 +1425,13 @@ model StockMovement {
 // StockLotPlacement/StockPiece (as opposed to the paperwork-domain
 // PurchaseOrderItem/RFQItem pattern, which carries no organizationId).
 model StockMovementLine {
-  id             String        @id @default(uuid())
+  id             String                  @id @default(uuid())
   organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organization   Organization            @relation(fields: [organizationId], references: [id])
   movementId     String
-  movement       StockMovement @relation(fields: [movementId], references: [id])
+  movement       StockMovement           @relation(fields: [movementId], references: [id])
   productId      String
-  product        Product       @relation(fields: [productId], references: [id])
+  product        Product                 @relation(fields: [productId], references: [id])
   effect         StockMovementLineEffect
 
   sourcePieceId String?

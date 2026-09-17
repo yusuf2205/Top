@@ -60,7 +60,13 @@ export const RfqStatus = {
 } as const;
 export type RfqStatus = (typeof RfqStatus)[keyof typeof RfqStatus];
 
+// M3.3 Phase B (Architecture Gate Revision 1, locked): SELECTED added ahead
+// of INVITED — a Supplier added to a DRAFT RFQ is merely SELECTED; M3.3
+// itself never mints a portal token or transitions past this value (that is
+// the future Supplier Portal phase's job — see RfqSupplierView below, which
+// deliberately excludes portalTokenHash/tokenExpiresAt).
 export const RfqSupplierStatus = {
+  SELECTED: "SELECTED",
   INVITED: "INVITED",
   VIEWED: "VIEWED",
   SUBMITTED: "SUBMITTED",
@@ -598,6 +604,86 @@ export interface SupplierDetail {
 
 export interface SupplierListResult {
   items: SupplierSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// ── M3.3 Phase B — RFQ (Architecture Gate Revision 1, locked) ──
+// Deliberately excludes portalTokenHash/tokenExpiresAt/idempotencyKey/
+// payloadHash everywhere below — never exposed in a normal API response
+// (Revision 1 §12/§20/§26). No Quote/Recommendation/PurchaseOrder nesting
+// (those modules don't exist yet; RfqDetail stays bounded even once they
+// do). Quantity is always `string` (Decimal, never a Prisma type in web),
+// technicalSpec reuses the exact same `Record<string, unknown> | null`
+// narrowing already established by PurchaseRequestItemSummary.
+
+/** LIST row — lightweight, no items[]/suppliers[] (same discipline as PurchaseRequestListItem/SupplierSummary); itemCount/supplierCount are DB-aggregated, never a per-row detail fetch. */
+export interface RfqSummary {
+  id: string;
+  rfqNumber: string;
+  status: RfqStatus;
+  deadline: string | null;
+  purchaseRequest: {
+    id: string;
+    requestNumber: string;
+  };
+  itemCount: number;
+  supplierCount: number;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+/** requiredDate follows the same UTC-midnight business-date convention as PurchaseRequestItem.requiredDate — display with formatBusinessDate, never formatDateTime (Revision 1 §16/§17). internalItemNote is never supplier-facing. */
+export interface RfqItemView {
+  id: string;
+  purchaseRequestItemId: string;
+  productId: string | null;
+  itemName: string;
+  skuSnapshot: string | null;
+  description: string | null;
+  quantity: string;
+  uomCode: UomCode;
+  technicalSpec: Record<string, unknown> | null;
+  requiredDate: string | null;
+  internalItemNote: string | null;
+}
+
+/** currentSupplierStatus is the Supplier's live status (bounded — status enum only, never the full Supplier object); status/invitedAt are this RFQSupplier row's own lifecycle (Revision 1 §26). */
+export interface RfqSupplierView {
+  id: string;
+  supplierId: string;
+  supplierCodeSnapshot: string;
+  companyNameSnapshot: string;
+  status: RfqSupplierStatus;
+  invitedAt: string | null;
+  currentSupplierStatus: SupplierStatus;
+}
+
+/** Bounded detail: header + PR summary + items + suppliers. No Quote, no token/idempotency fields (Revision 1 §44). */
+export interface RfqDetail {
+  id: string;
+  rfqNumber: string;
+  status: RfqStatus;
+  deadline: string | null;
+  supplierInstructions: string | null;
+  internalNotes: string | null;
+  purchaseRequest: {
+    id: string;
+    requestNumber: string;
+    status: PurchaseRequestStatus;
+  };
+  items: RfqItemView[];
+  suppliers: RfqSupplierView[];
+  createdAt: string;
+  sentAt: string | null;
+  closedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+}
+
+export interface RfqListResult {
+  items: RfqSummary[];
   total: number;
   page: number;
   pageSize: number;

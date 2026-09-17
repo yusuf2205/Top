@@ -65,7 +65,21 @@ export type AuditAction =
   | "SUPPLIER_CAPABILITY_ADDED"
   | "SUPPLIER_CAPABILITY_REMOVED"
   | "CATEGORY_CREATED"
-  | "CATEGORY_UPDATED";
+  | "CATEGORY_UPDATED"
+  // M3.3 Phase B (Architecture Gate Revision 1, §35) — action strings only,
+  // added ahead of the service layer that will call them (Phase C); no
+  // AuditService.log(...) call sites added in this phase, same precedent as
+  // M3.1 Phase B's own PURCHASE_REQUEST_* actions.
+  | "RFQ_CREATED"
+  | "RFQ_UPDATED"
+  | "RFQ_ITEM_ADDED"
+  | "RFQ_ITEM_REMOVED"
+  | "RFQ_SUPPLIER_ADDED"
+  | "RFQ_SUPPLIER_REMOVED"
+  | "RFQ_SENT"
+  | "RFQ_CLOSED"
+  | "RFQ_CANCELLED"
+  | "PURCHASE_REQUEST_RFQ_STARTED";
 
 interface AuditLogParams {
   organizationId: string;
