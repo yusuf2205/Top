@@ -461,6 +461,72 @@ table.data-table {
   }
 }
 
+/* ── RFQ table / responsive cards (M3.3 Phase D) ── */
+.rfq-table-wrap {
+  overflow-x: auto;
+}
+.rfq-number {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.rfq-cards {
+  display: none;
+}
+.rfq-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.6rem;
+}
+.rfq-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.rfq-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 720px) {
+  .rfq-table-wrap {
+    display: none;
+  }
+  .rfq-cards {
+    display: block;
+  }
+}
+
+/* ── Picker rows (RFQ item/supplier selection — M3.3 Phase D) ── */
+.picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.picker-row:last-child {
+  border-bottom: none;
+}
+.picker-row input[type="checkbox"] {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+.picker-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 /* ── Empty / error state ── */
 .empty-state {
   text-align: center;

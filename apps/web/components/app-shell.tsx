@@ -7,6 +7,7 @@ import type { UserRole } from "@top/types";
 import { useAuth } from "../lib/auth-context";
 import { RealtimeProvider, useRealtimeStatus } from "../lib/realtime";
 import { canViewSuppliers } from "../lib/supplier-permissions";
+import { canViewRfqs } from "../lib/rfq-permissions";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Администратор",
@@ -26,6 +27,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Дашборд" },
   { href: "/purchase-requests", label: "Заявки на закупку" },
+  { href: "/rfqs", label: "Запросы цен", visible: canViewRfqs },
   { href: "/suppliers", label: "Поставщики", visible: canViewSuppliers },
   { href: "/settings/organization", label: "Организация" },
   { href: "/settings/members", label: "Сотрудники" },

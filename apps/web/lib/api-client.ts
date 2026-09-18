@@ -6,16 +6,25 @@ import type {
   ProductListResult,
   PurchaseRequestListResult,
   PurchaseRequestSummary,
+  RfqDetail,
+  RfqItemView,
+  RfqListResult,
+  RfqSupplierView,
   SupplierCapabilityView,
   SupplierContactView,
   SupplierDetail,
   SupplierListResult,
 } from "@top/types";
 import type {
+  AddRfqItemInput,
+  AddRfqSupplierInput,
   AddSupplierCapabilityInput,
   AssignPurchaseRequestInput,
+  CancelRfqInput,
+  CloseRfqInput,
   CreateCategoryInput,
   CreatePurchaseRequestInput,
+  CreateRfqInput,
   CreateSupplierContactInput,
   CreateSupplierInput,
   PurchaseRequestItemInput,
@@ -23,6 +32,7 @@ import type {
   UpdateCategoryInput,
   UpdatePurchaseRequestInput,
   UpdatePurchaseRequestItemInput,
+  UpdateRfqInput,
   UpdateSupplierContactInput,
   UpdateSupplierInput,
   UpdateSupplierRatingInput,
@@ -138,6 +148,16 @@ export interface SupplierListQuery {
   status?: string;
   categoryId?: string;
   countryCode?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface RfqListQuery {
+  search?: string;
+  status?: string;
+  purchaseRequestId?: string;
+  createdAtFrom?: string;
+  createdAtTo?: string;
   page?: number;
   pageSize?: number;
 }
@@ -277,6 +297,32 @@ export const api = {
 
     removeCapability: (id: string, categoryId: string) =>
       request<void>(`/api/v1/suppliers/${id}/capabilities/${categoryId}`, { method: "DELETE" }),
+  },
+
+  rfqs: {
+    list: (query: RfqListQuery = {}) => request<RfqListResult>(`/api/v1/rfqs${toQueryString(query)}`),
+
+    get: (id: string) => request<RfqDetail>(`/api/v1/rfqs/${id}`),
+
+    create: (input: CreateRfqInput) => request<RfqDetail>("/api/v1/rfqs", { method: "POST", body: JSON.stringify(input) }),
+
+    update: (id: string, input: UpdateRfqInput) => request<RfqDetail>(`/api/v1/rfqs/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+    addItem: (id: string, input: AddRfqItemInput) =>
+      request<RfqItemView>(`/api/v1/rfqs/${id}/items`, { method: "POST", body: JSON.stringify(input) }),
+
+    removeItem: (id: string, rfqItemId: string) => request<void>(`/api/v1/rfqs/${id}/items/${rfqItemId}`, { method: "DELETE" }),
+
+    addSupplier: (id: string, input: AddRfqSupplierInput) =>
+      request<RfqSupplierView>(`/api/v1/rfqs/${id}/suppliers`, { method: "POST", body: JSON.stringify(input) }),
+
+    removeSupplier: (id: string, rfqSupplierId: string) => request<void>(`/api/v1/rfqs/${id}/suppliers/${rfqSupplierId}`, { method: "DELETE" }),
+
+    send: (id: string) => request<RfqDetail>(`/api/v1/rfqs/${id}/send`, { method: "POST" }),
+
+    close: (id: string, input: CloseRfqInput) => request<RfqDetail>(`/api/v1/rfqs/${id}/close`, { method: "POST", body: JSON.stringify(input) }),
+
+    cancel: (id: string, input: CancelRfqInput) => request<RfqDetail>(`/api/v1/rfqs/${id}/cancel`, { method: "POST", body: JSON.stringify(input) }),
   },
 
   categories: {

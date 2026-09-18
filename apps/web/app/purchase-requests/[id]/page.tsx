@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { PurchaseRequestSummary } from "@top/types";
 import { ProtectedRoute } from "../../../components/protected-route";
@@ -19,6 +20,10 @@ import { eventMatchesPurchaseRequest } from "../../../lib/pr-realtime-helpers";
 import { formatBusinessDate, formatDate, formatMoney } from "../../../lib/pr-labels";
 import { api, ApiError } from "../../../lib/api-client";
 import { canEditPurchaseRequest, type Actor } from "../../../lib/pr-permissions";
+import { canCreateRfq } from "../../../lib/rfq-permissions";
+
+/** Phase D §15 — RFQ creation is only offered once the PR is past internal approval; UX gating only, the backend re-checks eligibility on create. */
+const RFQ_ELIGIBLE_PR_STATUSES: PurchaseRequestSummary["status"][] = ["APPROVED", "RFQ_IN_PROGRESS"];
 
 export default function PurchaseRequestDetailPage() {
   return (
@@ -100,7 +105,14 @@ function PurchaseRequestDetailContent() {
             </p>
           )}
         </div>
-        <PurchaseRequestActions actor={actor} pr={pr} onUpdated={setPr} editing={editingHeader} onEditToggle={() => setEditingHeader((v) => !v)} />
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+          {RFQ_ELIGIBLE_PR_STATUSES.includes(pr.status) && canCreateRfq(actor.role) && (
+            <Link href={`/rfqs/new?purchaseRequestId=${pr.id}`} className="btn btn-secondary">
+              Создать RFQ
+            </Link>
+          )}
+          <PurchaseRequestActions actor={actor} pr={pr} onUpdated={setPr} editing={editingHeader} onEditToggle={() => setEditingHeader((v) => !v)} />
+        </div>
       </div>
 
       <div className="card">
