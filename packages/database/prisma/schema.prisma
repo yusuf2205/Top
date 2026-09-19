@@ -72,6 +72,21 @@ enum QuoteStatus {
   REJECTED
 }
 
+// M3.4 Multi-Channel Quote Intake Addendum: provenance of a Quote — which
+// intake channel created it. Channel-neutral by design (Addendum §4/§14):
+// the channel is NOT a separate model (no TelegramQuote/ManualQuote/etc.),
+// only this enum on the one canonical Quote. Nullable on the Quote field
+// itself (never defaulted) so legacy/pre-addendum rows are never falsely
+// relabeled — see the field comment on Quote.source.
+enum QuoteSource {
+  PORTAL
+  MANUAL
+  FILE_IMPORT
+  EMAIL
+  TELEGRAM
+  WHATSAPP
+}
+
 enum ApprovalEntityType {
   PURCHASE_REQUEST
   PURCHASE_ORDER
@@ -859,6 +874,14 @@ model RFQSupplier {
 // QUOTE
 // ────────────────────────────────────────────────────────────
 
+// M3.4 Phase B (Architecture Gate + Revision 1/2, locked): `payloadHash` is
+// the sole new column — submit-idempotency is scoped by the existing
+// `rfqSupplierId` unique constraint itself (one final Quote per RFQSupplier,
+// no revisions), so no separate `idempotencyKey` was added (Revision 1 §17,
+// Revision 2 confirms). Nullable so a hypothetical pre-existing Quote row
+// (none expected — Quote has zero business code before this phase) is never
+// backfilled/guessed; the submit-replay logic treats a null hash as "cannot
+// prove equality" and always rejects rather than assuming a match.
 model Quote {
   id               String      @id @default(uuid())
   rfqSupplierId    String      @unique
@@ -874,6 +897,15 @@ model Quote {
   notes            String?
   status           QuoteStatus @default(SUBMITTED)
   submittedAt      DateTime    @default(now())
+  payloadHash      String?
+  // M3.4 Multi-Channel Quote Intake Addendum: which intake channel created
+  // this Quote (Addendum §5). Nullable and never defaulted/backfilled — an
+  // existing row with `source = null` predates this addendum and must never
+  // be falsely relabeled as any specific channel. Future intake code paths
+  // (Portal now; Manual/File/Email/Telegram/WhatsApp in M3.5-M3.8) must set
+  // this explicitly at Quote-creation time; it is immutable afterward
+  // (Addendum §18) — never rewritten by a later endpoint or channel.
+  source           QuoteSource?
 
   items          QuoteItem[]
   extraction     AIExtraction?
@@ -884,6 +916,10 @@ model Quote {
   @@map("quotes")
 }
 
+// M3.4 Phase B: `@@unique([quoteId, rfqItemId])` closes a real pre-existing
+// gap (nothing previously stopped two rows for the same RFQItem within one
+// Quote) — defense-in-depth behind the submit transaction's own duplicate
+// rejection, never the only guard (Revision 1 §22/Revision 2 §13).
 model QuoteItem {
   id        String  @id @default(uuid())
   quoteId   String
@@ -893,6 +929,7 @@ model QuoteItem {
   unitPrice Decimal @db.Decimal(18, 4)
   quantity  Decimal @db.Decimal(18, 3)
 
+  @@unique([quoteId, rfqItemId])
   @@map("quote_items")
 }
 

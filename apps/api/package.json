@@ -18,6 +18,7 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/platform-express": "^10.4.0",
     "@nestjs/platform-socket.io": "^10.4.22",
+    "@nestjs/throttler": "^6.7.0",
     "@nestjs/websockets": "^10.4.22",
     "@top/config": "workspace:*",
     "@top/database": "workspace:*",

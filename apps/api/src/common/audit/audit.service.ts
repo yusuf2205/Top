@@ -79,7 +79,19 @@ export type AuditAction =
   | "RFQ_SENT"
   | "RFQ_CLOSED"
   | "RFQ_CANCELLED"
-  | "PURCHASE_REQUEST_RFQ_STARTED";
+  | "PURCHASE_REQUEST_RFQ_STARTED"
+  // M3.4 Supplier Portal Phase B (Architecture §40) — action strings only,
+  // added ahead of the service layer that will call them (Phase C); no
+  // AuditService.log(...) call sites added in this phase, same precedent as
+  // M3.1/M3.3 Phase B's own forward-declared action strings. Portal-
+  // originated rows use `userId: null` (already-nullable, no schema
+  // change — Architecture §33/D33).
+  | "RFQ_SUPPLIER_INVITED"
+  | "RFQ_SUPPLIER_PORTAL_REISSUED"
+  | "RFQ_SUPPLIER_PORTAL_REVOKED"
+  | "RFQ_SUPPLIER_VIEWED"
+  | "RFQ_SUPPLIER_DECLINED"
+  | "QUOTE_SUBMITTED";
 
 interface AuditLogParams {
   organizationId: string;

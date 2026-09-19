@@ -20,6 +20,7 @@ import { Roles } from "../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import type { AccessTokenClaims } from "../common/types/authenticated-request";
 import { RfqsService } from "./rfqs.service";
+import { RfqPortalAccessService } from "./rfq-portal-access.service";
 
 /**
  * M3.3 Phase C (Architecture Revision 1, locked). Flat RBAC — every route
@@ -35,7 +36,10 @@ import { RfqsService } from "./rfqs.service";
  */
 @Controller("api/v1/rfqs")
 export class RfqsController {
-  constructor(private readonly rfqs: RfqsService) {}
+  constructor(
+    private readonly rfqs: RfqsService,
+    private readonly portalAccess: RfqPortalAccessService
+  ) {}
 
   @Roles("ADMIN", "PROCUREMENT_MANAGER", "PROCUREMENT_SPECIALIST")
   @Post()
@@ -104,5 +108,38 @@ export class RfqsController {
   @Post(":id/cancel")
   cancel(@CurrentUser() user: AccessTokenClaims, @Param("id") id: string, @Body(new ZodValidationPipe(cancelRfqSchema)) body: CancelRfqInput) {
     return this.rfqs.cancel(user.organizationId, user.sub, id, body);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // M3.4 Supplier Portal Phase C — internal portal-access management
+  // (Architecture §3-4). Same flat RBAC as every other route on this
+  // controller — no ownership rule, cross-org/cross-parent is 404.
+  // ────────────────────────────────────────────────────────────
+
+  @Roles("ADMIN", "PROCUREMENT_MANAGER", "PROCUREMENT_SPECIALIST")
+  @HttpCode(200)
+  @Post(":id/suppliers/:rfqSupplierId/invite")
+  invite(@CurrentUser() user: AccessTokenClaims, @Param("id") id: string, @Param("rfqSupplierId") rfqSupplierId: string) {
+    return this.portalAccess.invite(user.organizationId, user.sub, id, rfqSupplierId);
+  }
+
+  @Roles("ADMIN", "PROCUREMENT_MANAGER", "PROCUREMENT_SPECIALIST")
+  @HttpCode(200)
+  @Post(":id/suppliers/:rfqSupplierId/reissue")
+  reissue(@CurrentUser() user: AccessTokenClaims, @Param("id") id: string, @Param("rfqSupplierId") rfqSupplierId: string) {
+    return this.portalAccess.reissue(user.organizationId, user.sub, id, rfqSupplierId);
+  }
+
+  @Roles("ADMIN", "PROCUREMENT_MANAGER", "PROCUREMENT_SPECIALIST")
+  @HttpCode(200)
+  @Post(":id/suppliers/:rfqSupplierId/revoke")
+  revoke(@CurrentUser() user: AccessTokenClaims, @Param("id") id: string, @Param("rfqSupplierId") rfqSupplierId: string) {
+    return this.portalAccess.revoke(user.organizationId, user.sub, id, rfqSupplierId);
+  }
+
+  @Roles("ADMIN", "PROCUREMENT_MANAGER", "PROCUREMENT_SPECIALIST")
+  @Get(":id/suppliers/:rfqSupplierId/quote")
+  getQuote(@CurrentUser() user: AccessTokenClaims, @Param("id") id: string, @Param("rfqSupplierId") rfqSupplierId: string) {
+    return this.portalAccess.getQuote(user.organizationId, id, rfqSupplierId);
   }
 }

@@ -13,3 +13,4 @@ export * from "./purchase-requests";
 export * from "./suppliers";
 export * from "./categories";
 export * from "./rfqs";
+export * from "./quotes";

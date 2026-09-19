@@ -666,13 +666,25 @@ function toRfqItemView(item: {
   };
 }
 
-function toRfqSupplierView(row: {
+/**
+ * M3.4 Phase C: `portalAccessActive`/`portalAccessExpiresAt` are derived
+ * PURELY from `portalTokenHash`/`tokenExpiresAt` — NEVER from `status`
+ * (Revoke deliberately leaves status/invitedAt/viewedAt unchanged, so status
+ * alone cannot tell the caller whether a credential is currently usable —
+ * see the RfqSupplierView doc comment in packages/types). Exported so
+ * RfqPortalAccessService (rfq-portal-access.service.ts) can reuse the exact
+ * same serialization for its revoke response — one canonical mapping, not
+ * two competing ones.
+ */
+export function toRfqSupplierView(row: {
   id: string;
   supplierId: string;
   supplierCodeSnapshot: string;
   companyNameSnapshot: string;
   status: string;
   invitedAt: Date | null;
+  portalTokenHash: string | null;
+  tokenExpiresAt: Date | null;
   supplier: { status: string };
 }): RfqSupplierView {
   return {
@@ -683,6 +695,8 @@ function toRfqSupplierView(row: {
     status: row.status as RfqSupplierView["status"],
     invitedAt: row.invitedAt?.toISOString() ?? null,
     currentSupplierStatus: row.supplier.status as RfqSupplierView["currentSupplierStatus"],
+    portalAccessActive: row.portalTokenHash !== null && row.tokenExpiresAt !== null && row.tokenExpiresAt.getTime() > Date.now(),
+    portalAccessExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
   };
 }
 

@@ -83,6 +83,24 @@ export const QuoteStatus = {
 } as const;
 export type QuoteStatus = (typeof QuoteStatus)[keyof typeof QuoteStatus];
 
+/**
+ * M3.4 Multi-Channel Quote Intake Addendum §5/§14: which intake channel
+ * created a Quote. Channel-neutral canonical model — there is only ever one
+ * `Quote`/`QuoteItem` shape; the channel is provenance (this field), never a
+ * separate per-channel model. PORTAL is the only value ever set by
+ * currently-implemented code (M3.4 Phase C); the rest are reserved for
+ * M3.5-M3.8 intake channels.
+ */
+export const QuoteSource = {
+  PORTAL: "PORTAL",
+  MANUAL: "MANUAL",
+  FILE_IMPORT: "FILE_IMPORT",
+  EMAIL: "EMAIL",
+  TELEGRAM: "TELEGRAM",
+  WHATSAPP: "WHATSAPP",
+} as const;
+export type QuoteSource = (typeof QuoteSource)[keyof typeof QuoteSource];
+
 export const PurchaseOrderStatus = {
   DRAFT: "DRAFT",
   PENDING_APPROVAL: "PENDING_APPROVAL",
@@ -650,6 +668,19 @@ export interface RfqItemView {
 }
 
 /** currentSupplierStatus is the Supplier's live status (bounded — status enum only, never the full Supplier object); status/invitedAt are this RFQSupplier row's own lifecycle (Revision 1 §26). */
+/**
+ * M3.4 Phase C — `portalAccessActive`/`portalAccessExpiresAt` are derived,
+ * internal-only metadata (never on SupplierPortalRfqView): Revoke
+ * deliberately leaves `status`/`invitedAt`/`viewedAt` unchanged (Architecture
+ * §14), so `status` alone cannot tell the internal RFQ UI whether a
+ * credential is CURRENTLY usable. `portalAccessActive` is computed as
+ * `portalTokenHash != null && tokenExpiresAt != null && tokenExpiresAt >
+ * now` at serialization time — never derived from `status`.
+ * `portalAccessExpiresAt` is shown whenever a token hash currently exists,
+ * even if already expired (useful to the Web UI regardless of active/
+ * inactive) — `null` only once revoked (both DB fields become null
+ * together). Never `portalTokenHash`/the raw token.
+ */
 export interface RfqSupplierView {
   id: string;
   supplierId: string;
@@ -658,6 +689,8 @@ export interface RfqSupplierView {
   status: RfqSupplierStatus;
   invitedAt: string | null;
   currentSupplierStatus: SupplierStatus;
+  portalAccessActive: boolean;
+  portalAccessExpiresAt: string | null;
 }
 
 /** Bounded detail: header + PR summary + items + suppliers. No Quote, no token/idempotency fields (Revision 1 §44). */
@@ -687,6 +720,116 @@ export interface RfqListResult {
   total: number;
   page: number;
   pageSize: number;
+}
+
+// ── M3.4 Supplier Portal Phase B (Architecture Gate + Revision 1/2, locked) ──
+// Every view below is a hand-written, explicitly-bounded shape — never a
+// narrowed/reused RfqDetail or a raw Prisma object spread. Deliberately
+// excludes, everywhere below: internalNotes, internalItemNote, PR
+// requestNumber/requester/buyer/internal status, createdBy, AuditLog, other
+// RFQSuppliers/Suppliers/Quotes, idempotency fields, portalTokenHash,
+// tokenExpiresAt, Supplier bank/internal notes, AIExtraction, Attachment,
+// PurchaseOrder (Revision 1 D19-D21/§17-20, Revision 1 Revision-of-Revision
+// §21/§28-30). `PortalContext` (server-internal, carries tokenHash) is
+// deliberately NOT exported from this package — it never reaches the
+// browser (Revision 1 §26).
+
+/** Supplier-safe item snapshot — no internalItemNote, no Product/PurchaseRequestItem relation metadata (Revision 1 §18/§23). */
+export interface SupplierPortalRfqItemView {
+  id: string;
+  itemName: string;
+  skuSnapshot: string | null;
+  description: string | null;
+  quantity: string;
+  uomCode: UomCode;
+  technicalSpec: Record<string, unknown> | null;
+  requiredDate: string | null;
+}
+
+/** rfqItemId + unitPrice are the Supplier's own submitted values; quantity/lineSubtotal are always server-derived, never client-supplied (Revision 1 D25/D29). */
+export interface SupplierPortalQuoteItemView {
+  rfqItemId: string;
+  unitPrice: string;
+  quantity: string;
+  lineSubtotal: string;
+}
+
+/** subtotal/totalBeforeVat are server-computed from authoritative Decimal fields (Revision 1 §23) — deliberately NO vatAmount/grandTotal field; no fiscal formula is asserted in M3.4. No payloadHash, no AI/review fields, no attachments/PO. */
+export interface SupplierPortalQuoteView {
+  id: string;
+  currency: string;
+  vatRate: string | null;
+  vatIncluded: boolean;
+  deliveryCost: string;
+  deliveryIncluded: boolean;
+  leadTimeDays: number | null;
+  paymentTerms: string | null;
+  warranty: string | null;
+  notes: string | null;
+  status: QuoteStatus;
+  submittedAt: string;
+  items: SupplierPortalQuoteItemView[];
+  subtotal: string;
+  totalBeforeVat: string;
+}
+
+/**
+ * `myStatus` is deliberately the real `RfqSupplierStatus` enum — a small,
+ * closed, non-leaky vocabulary (Revision 1 Revision-of-Revision §28: no
+ * value here names an internal workflow concept, so no separate portal-only
+ * vocabulary was invented). `deadline` is typed `string | null` for
+ * defensive serialization even though a Supplier can only ever authenticate
+ * against a SENT RFQ (which M3.3's own `send()` guarantees has a non-null,
+ * future-at-send-time deadline) — matching this package's existing
+ * "never assume the DB invariant, type defensively" convention (see
+ * RfqSummary.deadline's own nullability for the exact same reasoning on the
+ * internal side).
+ */
+export interface SupplierPortalRfqView {
+  rfqNumber: string;
+  deadline: string | null;
+  supplierInstructions: string | null;
+  status: Extract<RfqStatus, "SENT" | "CLOSED" | "CANCELLED">;
+  items: SupplierPortalRfqItemView[];
+  myStatus: RfqSupplierStatus;
+  myQuote: SupplierPortalQuoteView | null;
+}
+
+/** Internal bounded Quote read (Revision 1 D32/D67) — same business fields as SupplierPortalQuoteView plus enough identifiers for the internal RFQ detail page to display it; no payloadHash/portalTokenHash/tokenExpiresAt/AIExtraction/Attachment/PurchaseOrder/other Suppliers' Quotes. */
+/**
+ * `source` (Addendum §8/§26) is internal-only provenance — never present on
+ * `SupplierPortalQuoteView`, since the Supplier already knows how they
+ * submitted it. `null` means the Quote predates the M3.4 Multi-Channel
+ * Quote Intake Addendum and must never be assumed to be any specific
+ * channel (never falsely displayed as PORTAL).
+ */
+export interface QuoteView {
+  id: string;
+  rfqId: string;
+  rfqSupplierId: string;
+  supplierId: string;
+  supplierCodeSnapshot: string;
+  companyNameSnapshot: string;
+  currency: string;
+  vatRate: string | null;
+  vatIncluded: boolean;
+  deliveryCost: string;
+  deliveryIncluded: boolean;
+  leadTimeDays: number | null;
+  paymentTerms: string | null;
+  warranty: string | null;
+  notes: string | null;
+  status: QuoteStatus;
+  submittedAt: string;
+  source: QuoteSource | null;
+  items: SupplierPortalQuoteItemView[];
+  subtotal: string;
+  totalBeforeVat: string;
+}
+
+/** Returned ONCE, at issuance/reissue time (Revision 1 §63/D63) — never portalTokenHash, never persisted beyond the immediate response. */
+export interface PortalAccessIssuedView {
+  token: string;
 }
 
 // ── Realtime Foundation — domain event contract ──

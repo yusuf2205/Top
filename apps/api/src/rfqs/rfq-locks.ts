@@ -15,9 +15,12 @@ import type { TenantTransactionClient } from "../database/database.module";
  * names — `rfqs`, `purchase_requests`, `suppliers`, `rfq_suppliers`), not
  * assumed from pseudocode.
  *
- * These helpers are intentionally NOT exported from an index/barrel — only
- * RfqsService imports them directly, keeping the raw-SQL surface as narrow
- * as possible.
+ * These helpers are intentionally NOT exported from an index/barrel —
+ * RfqsService, RfqPortalAccessService, and (via a direct cross-module
+ * import) PortalService import them directly, keeping the raw-SQL surface
+ * as narrow as possible while still letting Phase C's portal business logic
+ * reuse the exact same tenant-scoped locking primitives rather than a
+ * parallel copy.
  */
 
 export interface RfqLockRow {
@@ -122,4 +125,44 @@ export async function lockSelectedRfqSuppliers(
     ORDER BY s."id" ASC
     FOR UPDATE OF s
   `;
+}
+
+export interface RfqSupplierLockRow {
+  id: string;
+  rfqId: string;
+  supplierId: string;
+  status: string;
+  portalTokenHash: string | null;
+  tokenExpiresAt: Date | null;
+}
+
+/**
+ * M3.4 Supplier Portal Phase B (Architecture §41, Revision 1 §8/lock order).
+ * Locks a single `RFQSupplier` row by its own id, tenant-scoped via a join
+ * to `rfqs.organizationId` (RFQSupplier itself carries no direct
+ * `organizationId` column). Second lock in both the internal
+ * invite/reissue/revoke order (RFQ → RFQSupplier) and the portal
+ * submit/decline order (RFQ → RFQSupplier → Supplier) — never used as the
+ * first lock (Phase B §42).
+ *
+ * Field selection is deliberately minimal — exactly what the credential
+ * revalidation (portalTokenHash/tokenExpiresAt) and participation-status
+ * branching (status) that EVERY Phase C portal/invite business transaction
+ * needs, per Architecture Revision 1/2's own locked transaction shapes — not
+ * speculative. A future Phase C business method may select additional
+ * fields itself via a normal (non-locking) Prisma read in the same
+ * transaction if it needs more than this lock row provides; this helper is
+ * not meant to grow into a general-purpose RFQSupplier reader.
+ */
+export async function lockRfqSupplier(tx: TenantTransactionClient, organizationId: string, rfqSupplierId: string): Promise<RfqSupplierLockRow> {
+  const rows = await tx.$queryRaw<RfqSupplierLockRow[]>`
+    SELECT rs."id", rs."rfqId", rs."supplierId", rs."status", rs."portalTokenHash", rs."tokenExpiresAt"
+    FROM "rfq_suppliers" rs
+    JOIN "rfqs" r ON r."id" = rs."rfqId"
+    WHERE rs."id" = ${rfqSupplierId} AND r."organizationId" = ${organizationId}
+    FOR UPDATE OF rs
+  `;
+  const row = rows[0];
+  if (!row) throw new NotFoundException("RFQ supplier not found");
+  return row;
 }
