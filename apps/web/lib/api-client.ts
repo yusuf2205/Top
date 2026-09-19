@@ -3,9 +3,11 @@ import type {
   CurrentUser,
   OrganizationMember,
   PendingInvitation,
+  PortalAccessIssuedView,
   ProductListResult,
   PurchaseRequestListResult,
   PurchaseRequestSummary,
+  QuoteView,
   RfqDetail,
   RfqItemView,
   RfqListResult,
@@ -323,6 +325,27 @@ export const api = {
     close: (id: string, input: CloseRfqInput) => request<RfqDetail>(`/api/v1/rfqs/${id}/close`, { method: "POST", body: JSON.stringify(input) }),
 
     cancel: (id: string, input: CancelRfqInput) => request<RfqDetail>(`/api/v1/rfqs/${id}/cancel`, { method: "POST", body: JSON.stringify(input) }),
+
+    // M3.4 Phase D — Supplier Portal access management (internal, RBAC-only,
+    // never throttled). `invitePortal`/`reissuePortal` return the raw
+    // one-time token (never persisted beyond the immediate copy-link dialog);
+    // `revokePortal` returns the updated RfqSupplierView directly (no
+    // separate refetch needed for that one row, though the caller still
+    // refetches the whole RFQ for the other panels). `getSupplierQuote` is
+    // deliberately never called automatically for every supplier row on page
+    // load (Phase D §42/§43 — no frontend N+1) — only on an explicit
+    // "Посмотреть предложение" click.
+    invitePortal: (rfqId: string, rfqSupplierId: string) =>
+      request<PortalAccessIssuedView>(`/api/v1/rfqs/${rfqId}/suppliers/${rfqSupplierId}/invite`, { method: "POST" }),
+
+    reissuePortal: (rfqId: string, rfqSupplierId: string) =>
+      request<PortalAccessIssuedView>(`/api/v1/rfqs/${rfqId}/suppliers/${rfqSupplierId}/reissue`, { method: "POST" }),
+
+    revokePortal: (rfqId: string, rfqSupplierId: string) =>
+      request<RfqSupplierView>(`/api/v1/rfqs/${rfqId}/suppliers/${rfqSupplierId}/revoke`, { method: "POST" }),
+
+    getSupplierQuote: (rfqId: string, rfqSupplierId: string) =>
+      request<QuoteView>(`/api/v1/rfqs/${rfqId}/suppliers/${rfqSupplierId}/quote`),
   },
 
   categories: {

@@ -736,3 +736,65 @@ table.data-table {
     flex: 1;
   }
 }
+
+/* ── Supplier Portal (M3.4 Phase D) — public page, no AppShell ── */
+.portal-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+.portal-page .card {
+  margin-bottom: 1rem;
+}
+.portal-items-table-wrap {
+  overflow-x: auto;
+}
+.portal-item-cards {
+  display: none;
+}
+.portal-item-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.6rem;
+}
+.portal-item-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.portal-item-price-input {
+  width: 100%;
+  max-width: 180px;
+}
+.portal-quote-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.9rem;
+  margin: 1rem 0;
+}
+
+@media (max-width: 720px) {
+  .portal-items-table-wrap {
+    display: none;
+  }
+  .portal-item-cards {
+    display: block;
+  }
+  .portal-item-price-input {
+    max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .portal-page {
+    padding: 1rem 0.75rem 2rem;
+  }
+  .portal-quote-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

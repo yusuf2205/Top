@@ -39,3 +39,8 @@ export function canCloseRfq(role: UserRole): boolean {
 export function canCancelRfq(role: UserRole): boolean {
   return RFQ_ROLES.includes(role);
 }
+
+/** M3.4 Phase D §1 — invite/reissue/revoke/internal-quote-read share the exact same RBAC matrix as every other RFQ action (backend `@Roles(...)` on all four routes, apps/api/src/rfqs/rfqs.controller.ts). */
+export function canManagePortalAccess(role: UserRole): boolean {
+  return RFQ_ROLES.includes(role);
+}

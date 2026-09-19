@@ -165,7 +165,7 @@ function RfqDetailContent() {
 
       <RfqItemsPanel rfqId={rfq.id} purchaseRequestId={rfq.purchaseRequest.id} items={rfq.items} editable={editable} onChanged={load} />
 
-      <RfqSuppliersPanel rfqId={rfq.id} suppliers={rfq.suppliers} editable={editable} onChanged={load} />
+      <RfqSuppliersPanel rfqId={rfq.id} suppliers={rfq.suppliers} editable={editable} role={user.role} onChanged={load} />
     </>
   );
 }
